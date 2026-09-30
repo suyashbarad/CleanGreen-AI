@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://cleangreen-ai-backend.onrender.com/api/:path*"
+    },
+    {
+      "source": "/complaints/:path*",
+      "destination": "https://cleangreen-ai-backend.onrender.com/complaints/:path*"
+    }
+  ]
+}
