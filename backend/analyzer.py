@@ -17,6 +17,8 @@ import subprocess
 import secrets
 from pathlib import Path
 from typing import Dict, Any, Optional
+import mimetypes
+from google import genai
 
 try:
     from PIL import Image, ImageDraw, ImageFont
@@ -24,8 +26,6 @@ try:
 except ImportError:
     PIL_AVAILABLE = False
 
-# Location of agy binary
-AGY_PATH = r"C:\Users\khush\AppData\Local\agy\bin\agy.exe"
 
 # Stream Colors for visual bounding boxes
 STREAM_COLORS = {
@@ -153,46 +153,119 @@ def run_background_ai_analysis(folder_path: Path, image_file_path: Path):
 
 
 def run_agy_analysis(folder_path: Path, prompt: str) -> str:
-    """Executes agy.exe headlessly (terminal hidden) inside the complaint folder."""
-    if not os.path.exists(AGY_PATH):
-        raise FileNotFoundError(f"agy CLI executable not found at: {AGY_PATH}")
+    """
+    Runs Gemini Vision directly through the Gemini API.
 
-    cmd = [
-        AGY_PATH,
-        "--dangerously-skip-permissions",
-        "--model", "gemini-3.8-flash-low",
-        "--print",
-        prompt
-    ]
+    This replaces the old local agy.exe / Antigravity dependency.
+    The image is sent from the Render server directly to Gemini.
+    """
 
-    startupinfo = None
-    creationflags = 0
-    if sys.platform == "win32":
-        startupinfo = subprocess.STARTUPINFO()
-        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        startupinfo.wShowWindow = 0  # SW_HIDE
-        creationflags = subprocess.CREATE_NO_WINDOW
+    api_key = os.environ.get("GEMINI_API_KEY")
 
-    process = subprocess.Popen(
-        cmd,
-        cwd=str(folder_path),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        stdin=subprocess.DEVNULL,
-        startupinfo=startupinfo,
-        creationflags=creationflags,
-        text=True,
-        encoding="utf-8",
-        errors="replace"
+    if not api_key:
+        raise RuntimeError(
+            "GEMINI_API_KEY environment variable is not configured."
+        )
+
+    image_files = list(folder_path.glob("waste_photo.*"))
+
+    if not image_files:
+        raise FileNotFoundError(
+            f"No complaint image found in {folder_path}"
+        )
+
+    image_path = image_files[0]
+
+    mime_type, _ = mimetypes.guess_type(str(image_path))
+
+    if not mime_type or not mime_type.startswith("image/"):
+        mime_type = "image/jpeg"
+
+    client = genai.Client(api_key=api_key)
+
+    analysis_prompt = """
+You are the Garbage-Vision analysis engine for CleanGreen AI.
+
+Analyze the provided garbage/waste photograph carefully.
+
+Identify EVERY clearly visible waste item.
+
+Return ONLY valid JSON. Do not use markdown fences.
+Do not add explanations before or after the JSON.
+
+Use exactly this structure:
+
+{
+  "items": [
+    {
+      "item_id": "ITEM-001",
+      "item_name": "plastic bottle",
+      "count": 1,
+      "stream": "DRY_RECYCLABLE",
+      "material": "plastic",
+      "resin_code": "",
+      "sup_violation": false,
+      "brand": "unidentified",
+      "condition": "used",
+      "bounding_box": [ymin, xmin, ymax, xmax]
+    }
+  ],
+  "summary": "Brief description of the waste scene."
+}
+
+IMPORTANT RULES:
+
+1. Identify every clearly visible waste item.
+2. Do not invent objects that are not visible.
+3. If several identical objects are clearly visible, either list them separately or use count when appropriate.
+4. "bounding_box" MUST use normalized coordinates from 0 to 1000.
+5. Bounding box order MUST be:
+   [ymin, xmin, ymax, xmax]
+6. Make the bounding boxes as tight as reasonably possible around each item.
+7. Use one of these stream values:
+   - WET
+   - DRY_RECYCLABLE
+   - SANITARY
+   - BIOMEDICAL_HAZARD
+   - EWASTE
+   - HAZARDOUS_CHEMICAL
+   - CND
+   - GENERIC_RESIDUAL
+8. Use "CND" for construction/demolition waste.
+9. Use "DRY_RECYCLABLE" for commonly recyclable dry waste such as plastic bottles, cans, paper and cardboard.
+10. Set "sup_violation" to true only when the item is clearly identifiable as a prohibited/single-use plastic item according to the project's intended classification.
+11. If a field cannot be determined, use an empty string rather than inventing information.
+12. If no waste items can be reliably identified, return:
+    {"items": [], "summary": "No clearly identifiable waste items."}
+
+Return ONLY the JSON object.
+"""
+
+    print(f"[AI WORKER] Sending {image_path.name} to Gemini...")
+
+    with open(image_path, "rb") as f:
+        image_bytes = f.read()
+
+    response = client.models.generate_content(
+        model="gemini-3.8-flash",
+        contents=[
+            analysis_prompt,
+            genai.types.Part.from_bytes(
+                data=image_bytes,
+                mime_type=mime_type
+            )
+        ]
     )
 
-    stdout, stderr = process.communicate(timeout=360)
+    result = response.text.strip()
 
-    if process.returncode != 0:
-        error_msg = stderr.strip() or stdout.strip() or f"Process exited with code {process.returncode}"
-        raise RuntimeError(f"agy execution failed: {error_msg}")
+    if not result:
+        raise RuntimeError("Gemini returned an empty response.")
 
-    return stdout
+    print("[AI WORKER] Gemini analysis received.")
+
+    # Keep compatibility with the existing JSON parser.
+    return result
 
 
 def extract_json_and_markdown(raw_output: str) -> tuple[Optional[Dict[str, Any]], str]:
