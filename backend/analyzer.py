@@ -155,9 +155,7 @@ def run_background_ai_analysis(folder_path: Path, image_file_path: Path):
 def run_agy_analysis(folder_path: Path, prompt: str) -> str:
     """
     Runs Gemini Vision directly through the Gemini API.
-
-    This replaces the old local agy.exe / Antigravity dependency.
-    The image is sent from the Render server directly to Gemini.
+    Includes retries for temporary 503/UNAVAILABLE errors.
     """
 
     api_key = os.environ.get("GEMINI_API_KEY")
@@ -241,141 +239,72 @@ IMPORTANT RULES:
 Return ONLY the JSON object.
 """
 
-    print(f"[AI WORKER] Sending {image_path.name} to Gemini...")
+    print(
+        f"[AI WORKER] Sending {image_path.name} to Gemini...",
+        flush=True
+    )
 
     with open(image_path, "rb") as f:
         image_bytes = f.read()
 
-    response = client.models.generate_content(
-        model="gemini-3.8-flash",
-        contents=[
-            analysis_prompt,
-            genai.types.Part.from_bytes(
-                data=image_bytes,
-                mime_type=mime_type
+    response = None
+
+    for attempt in range(3):
+        try:
+            print(
+                f"[AI WORKER] Gemini attempt {attempt + 1}/3...",
+                flush=True
             )
-        ]
-    )
+
+            response = client.models.generate_content(
+                model="gemini-3.8-flash",
+                contents=[
+                    analysis_prompt,
+                    genai.types.Part.from_bytes(
+                        data=image_bytes,
+                        mime_type=mime_type
+                    )
+                ]
+            )
+
+            break
+
+        except Exception as e:
+            error_text = str(e)
+
+            print(
+                f"[AI WORKER] Gemini attempt {attempt + 1} failed: "
+                f"{error_text}",
+                flush=True
+            )
+
+            if "503" not in error_text and "UNAVAILABLE" not in error_text:
+                raise
+
+            if attempt < 2:
+                wait_time = 5 * (attempt + 1)
+
+                print(
+                    f"[AI WORKER] Gemini temporarily unavailable. "
+                    f"Retrying in {wait_time}s...",
+                    flush=True
+                )
+
+                time.sleep(wait_time)
+            else:
+                raise
+
+    if response is None:
+        raise RuntimeError("Gemini did not return a response.")
 
     result = response.text.strip()
 
     if not result:
         raise RuntimeError("Gemini returned an empty response.")
 
-    print("[AI WORKER] Gemini analysis received.")
+    print(
+        "[AI WORKER] Gemini analysis received.",
+        flush=True
+    )
 
-    # Keep compatibility with the existing JSON parser.
     return result
-
-
-def extract_json_and_markdown(raw_output: str) -> tuple[Optional[Dict[str, Any]], str]:
-    """Extracts the structured JSON payload and markdown narrative from the agy output."""
-    json_data = None
-    markdown_narrative = raw_output
-
-    json_block_regex = re.search(r"```json\s*(\{.*?\})\s*```", raw_output, re.DOTALL)
-    if json_block_regex:
-        json_str = json_block_regex.group(1).strip()
-        try:
-            json_data = json.loads(json_str)
-        except json.JSONDecodeError:
-            pass
-
-    if not json_data:
-        brace_regex = re.search(r"(\{[\s\S]*\"items\"[\s\S]*\})", raw_output)
-        if brace_regex:
-            json_str = brace_regex.group(1).strip()
-            try:
-                json_data = json.loads(json_str)
-            except json.JSONDecodeError:
-                pass
-
-    return json_data, markdown_narrative
-
-
-def draw_bounding_boxes(image_path: Path, report_json: Dict[str, Any], output_path: Path) -> bool:
-    """Draws color-coded bounding boxes on the complaint photo and saves to output_path."""
-    if not PIL_AVAILABLE:
-        print("[WARN] Pillow is not available. Skipping visual annotations.")
-        return False
-
-    try:
-        with Image.open(image_path) as img:
-            img = img.convert("RGB")
-            draw = ImageDraw.Draw(img)
-            width, height = img.size
-
-            try:
-                font = ImageFont.load_default(size=14)
-            except Exception:
-                font = ImageFont.load_default()
-
-            items = report_json.get("items", [])
-            for item in items:
-                bbox = item.get("bounding_box") or item.get("box_2d")
-                if not bbox or len(bbox) != 4:
-                    continue
-
-                ymin_norm, xmin_norm, ymax_norm, xmax_norm = bbox
-                ymin = int((ymin_norm / 1000.0) * height)
-                xmin = int((xmin_norm / 1000.0) * width)
-                ymax = int((ymax_norm / 1000.0) * height)
-                xmax = int((xmax_norm / 1000.0) * width)
-
-                stream = item.get("stream", "GENERIC_RESIDUAL")
-                color = STREAM_COLORS.get(stream, (128, 128, 128))
-
-                for offset in range(3):
-                    draw.rectangle(
-                        [xmin - offset, ymin - offset, xmax + offset, ymax + offset],
-                        outline=color
-                    )
-
-                label_text = f"{item.get('item_name', 'Item')}"
-                if item.get("sup_violation"):
-                    label_text += " [SUP BAN]"
-
-                text_bbox = draw.textbbox((xmin, max(0, ymin - 18)), label_text, font=font)
-                draw.rectangle(text_bbox, fill=color)
-                draw.text((xmin + 2, max(0, ymin - 18)), label_text, fill=(255, 255, 255), font=font)
-
-            img.save(output_path, "JPEG", quality=90)
-            return True
-
-    except Exception as e:
-        print(f"[WARN] Failed to draw bounding boxes: {e}")
-        return False
-
-
-def export_report_csv(report_json: Dict[str, Any], output_path: Path):
-    """Exports items from report_json to a standard CSV file."""
-    items = report_json.get("items", [])
-    if not items:
-        with open(output_path, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(["item_id", "item_name", "count", "stream", "material", "resin_code", "sup_violation", "brand", "condition"])
-        return
-
-    fieldnames = [
-        "item_id", "item_name", "count", "stream", "material",
-        "resin_code", "sup_violation", "brand", "condition",
-        "bounding_box"
-    ]
-
-    with open(output_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction='ignore')
-        writer.writeheader()
-        for it in items:
-            row = {
-                "item_id": it.get("item_id", ""),
-                "item_name": it.get("item_name", ""),
-                "count": it.get("count", 1),
-                "stream": it.get("stream", "GENERIC_RESIDUAL"),
-                "material": it.get("material", ""),
-                "resin_code": it.get("resin_code", ""),
-                "sup_violation": it.get("sup_violation", False),
-                "brand": it.get("brand", "unidentified"),
-                "condition": it.get("condition", ""),
-                "bounding_box": str(it.get("bounding_box") or it.get("box_2d", ""))
-            }
-            writer.writerow(row)
