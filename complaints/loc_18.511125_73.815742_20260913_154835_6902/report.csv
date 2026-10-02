@@ -1,0 +1,6 @@
+item_id,item_name,count,stream,material,resin_code,sup_violation,brand,condition,bounding_box
+ITEM-001,PET Plastic Beverage Bottle,2,DRY_RECYCLABLE,Polyethylene Terephthalate,1 (PETE),True,Bisleri,Discarded / Empty,"[120, 80, 480, 380]"
+ITEM-002,Single-Use Polythene Carry Bag,3,DRY_RECYCLABLE,Low-Density Polyethylene,4 (LDPE),True,Unbranded Local Packaging,Torn / Crushed,"[350, 420, 820, 920]"
+ITEM-003,Multi-layer Food Packaging Sachet,5,GENERIC_RESIDUAL,Metallized Plastic Laminate,7 (OTHER),True,Lays / Parle,Discarded Wrapper,"[520, 150, 890, 560]"
+ITEM-004,Discarded Cardboard Container,1,DRY_RECYCLABLE,Corrugated Paperboard,PAP 20,False,Generic Parcel,Moist / Flattened,"[180, 550, 550, 950]"
+ITEM-005,Organic Kitchen Waste Residue,1,WET,Biodegradable Matter,N/A,False,N/A,Decomposing,"[620, 60, 940, 450]"

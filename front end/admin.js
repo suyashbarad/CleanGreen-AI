@@ -710,7 +710,7 @@ window.openForensicDrawerById = function (cid) {
           </div>
           <div class="progress-step-item active">
             <i class="fa-solid fa-spinner fa-spin"></i>
-            <span><strong>Step 2:</strong> Gemini 3.8 Multimodal Spatial Scan (Detecting individual garbage items & coordinates)</span>
+            <span><strong>Step 2:</strong> Gemini Multimodal Spatial Scan (Detecting individual garbage items & coordinates)</span>
           </div>
           <div class="progress-step-item queued">
             <i class="fa-regular fa-circle"></i>

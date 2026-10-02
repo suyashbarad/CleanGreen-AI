@@ -1,2 +1,3 @@
 Pillow
 google-genai
+python-dotenv
