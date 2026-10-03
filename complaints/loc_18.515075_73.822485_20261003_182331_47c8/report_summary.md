@@ -299,5 +299,5 @@
     "mean_edge_density": 55.8,
     "image_resolution": "612x382"
   },
-  "summary": "Multi-band sweep of the 612x382px frame isolated 14 artifact cluster(s) over 86.1% of the image (mean edge density 55.8). Streams present: DRY_RECYCLABLE, GENERIC_RESIDUAL. Estimated load 6.19 kg across 35 pieces, 1 SUP-banned item(s). Severity CRITICAL (74/100) \u2014 Source segregation breach \u2014 dispatch compactor and issue spot notice. Set GEMINI_API_KEY on the backend for brand-level item identification."
+  "summary": "Multi-band sweep of the 612x382px frame isolated 14 artifact cluster(s) over 86.1% of the image (mean edge density 55.8). Streams present: DRY_RECYCLABLE, GENERIC_RESIDUAL. Estimated load 6.19 kg across 35 pieces, 1 SUP-banned item(s). Severity CRITICAL (74/100) \u2014 Source segregation breach \u2014 dispatch compactor and issue spot notice. A CLIP vision model confirmed the scene (P(litter)=0.98) and vetoed 0 false box(es). Set GEMINI_API_KEY on the backend for brand-level item identification."
 }

@@ -1,3 +1,8 @@
 Pillow
 google-genai
 python-dotenv
+
+# Optional, local only: pip install torch transformers
+# Enables backend/vision_ml.py, the CLIP verifier that rejects fake/non-garbage photos.
+# Intentionally not installed on Render's 512 MB free tier — the analyzer falls back to
+# its colour/edge heuristics when torch is missing.

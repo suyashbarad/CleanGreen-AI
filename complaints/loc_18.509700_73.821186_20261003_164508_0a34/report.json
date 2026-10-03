@@ -21,25 +21,6 @@
     },
     {
       "item_id": "ITEM-002",
-      "item_name": "Crushed Transparent PET Bottle",
-      "count": 3,
-      "stream": "DRY_RECYCLABLE",
-      "material": "Polyethylene Terephthalate",
-      "resin_code": "1 (PETE)",
-      "sup_violation": false,
-      "brand": "On-The-Go Beverage",
-      "confidence": 0.94,
-      "est_weight_kg": 0.55,
-      "condition": "Isolated artifact cluster (58 sectors, 6.0% of frame)",
-      "bounding_box": [
-        258,
-        492,
-        492,
-        719
-      ]
-    },
-    {
-      "item_id": "ITEM-003",
       "item_name": "Discarded Cardboard / Paper Packaging",
       "count": 2,
       "stream": "DRY_RECYCLABLE",
@@ -58,7 +39,7 @@
       ]
     },
     {
-      "item_id": "ITEM-004",
+      "item_id": "ITEM-003",
       "item_name": "Flattened Corrugated Carton",
       "count": 2,
       "stream": "DRY_RECYCLABLE",
@@ -77,7 +58,7 @@
       ]
     },
     {
-      "item_id": "ITEM-005",
+      "item_id": "ITEM-004",
       "item_name": "Wet Kraft Paper Bag",
       "count": 3,
       "stream": "DRY_RECYCLABLE",
@@ -96,7 +77,7 @@
       ]
     },
     {
-      "item_id": "ITEM-006",
+      "item_id": "ITEM-005",
       "item_name": "Crumpled Newspaper Sheet",
       "count": 2,
       "stream": "DRY_RECYCLABLE",
@@ -115,7 +96,7 @@
       ]
     },
     {
-      "item_id": "ITEM-007",
+      "item_id": "ITEM-006",
       "item_name": "Paper Tea Cup / Cardboard Tube Core",
       "count": 2,
       "stream": "DRY_RECYCLABLE",
@@ -134,7 +115,7 @@
       ]
     },
     {
-      "item_id": "ITEM-008",
+      "item_id": "ITEM-007",
       "item_name": "Cardboard Egg-Tray Fragment",
       "count": 2,
       "stream": "DRY_RECYCLABLE",
@@ -153,7 +134,7 @@
       ]
     },
     {
-      "item_id": "ITEM-009",
+      "item_id": "ITEM-008",
       "item_name": "Organic Food & Kitchen Waste Residue",
       "count": 2,
       "stream": "WET",
@@ -172,7 +153,7 @@
       ]
     },
     {
-      "item_id": "ITEM-010",
+      "item_id": "ITEM-009",
       "item_name": "Torn Paper Packet / Courier Envelope",
       "count": 2,
       "stream": "DRY_RECYCLABLE",
@@ -191,7 +172,7 @@
       ]
     },
     {
-      "item_id": "ITEM-011",
+      "item_id": "ITEM-010",
       "item_name": "Paper Food-Tray Liner",
       "count": 2,
       "stream": "DRY_RECYCLABLE",
@@ -210,7 +191,7 @@
       ]
     },
     {
-      "item_id": "ITEM-012",
+      "item_id": "ITEM-011",
       "item_name": "Milk / Juice Beverage Carton",
       "count": 2,
       "stream": "DRY_RECYCLABLE",
@@ -229,7 +210,7 @@
       ]
     },
     {
-      "item_id": "ITEM-013",
+      "item_id": "ITEM-012",
       "item_name": "Cardboard Display / Shelf Strip",
       "count": 2,
       "stream": "DRY_RECYCLABLE",
@@ -246,37 +227,18 @@
         742,
         234
       ]
-    },
-    {
-      "item_id": "ITEM-014",
-      "item_name": "PET Jar / Deli Container Shell",
-      "count": 2,
-      "stream": "DRY_RECYCLABLE",
-      "material": "Polyethylene Terephthalate",
-      "resin_code": "1 (PETE)",
-      "sup_violation": false,
-      "brand": "Pickles / Confection Pack",
-      "confidence": 0.87,
-      "est_weight_kg": 0.35,
-      "condition": "Isolated artifact cluster (30 sectors, 3.1% of frame)",
-      "bounding_box": [
-        133,
-        735,
-        242,
-        921
-      ]
     }
   ],
   "segregation_verdict": "UNSEGREGATED",
   "hazard_flag": false,
   "metrics": {
     "severity": "HIGH",
-    "severity_index": 69,
+    "severity_index": 65,
     "frame_coverage_pct": 85.0,
-    "artifact_clusters": 14,
-    "total_pieces": 31,
+    "artifact_clusters": 12,
+    "total_pieces": 26,
     "sup_infractions": 0,
-    "estimated_weight_kg": 6.21,
+    "estimated_weight_kg": 5.31,
     "mean_confidence": 0.88,
     "streams_detected": [
       "DRY_RECYCLABLE",
@@ -284,14 +246,14 @@
     ],
     "stream_breakdown": {
       "DRY_RECYCLABLE": {
-        "pieces": 29,
-        "weight_kg": 5.21,
-        "share_pct": 83.9
+        "pieces": 24,
+        "weight_kg": 4.31,
+        "share_pct": 81.2
       },
       "WET": {
         "pieces": 2,
         "weight_kg": 1.0,
-        "share_pct": 16.1
+        "share_pct": 18.8
       }
     },
     "hazard_flag": false,
@@ -299,5 +261,5 @@
     "mean_edge_density": 57.0,
     "image_resolution": "866x1390"
   },
-  "summary": "Multi-band sweep of the 866x1390px frame isolated 14 artifact cluster(s) over 85.0% of the image (mean edge density 57.0). Streams present: DRY_RECYCLABLE, WET. Estimated load 6.21 kg across 31 pieces, 0 SUP-banned item(s). Severity HIGH (69/100) \u2014 Source segregation breach \u2014 dispatch compactor and issue spot notice. Set GEMINI_API_KEY on the backend for brand-level item identification."
+  "summary": "Multi-band sweep of the 866x1390px frame isolated 12 artifact cluster(s) over 85.0% of the image (mean edge density 57.0). Streams present: DRY_RECYCLABLE, WET. Estimated load 5.31 kg across 26 pieces, 0 SUP-banned item(s). Severity HIGH (65/100) \u2014 Source segregation breach \u2014 dispatch compactor and issue spot notice. A CLIP vision model confirmed the scene (P(litter)=0.99) and vetoed 2 false box(es). Set GEMINI_API_KEY on the backend for brand-level item identification."
 }

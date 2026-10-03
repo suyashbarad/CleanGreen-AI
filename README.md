@@ -40,13 +40,12 @@ garbade/
 2. **Folder Creation**:
    - Backend saves the complaint into a unique folder: `complaints/loc_{lat}_{lng}_{timestamp}_{random_hex}/`.
    - Stores `waste_photo.jpg` and `metadata.json` (GPS coordinates, time, address).
-3. **Headless Antigravity (`agy`) Execution**:
-   - Spawns `agy.exe` with:
-     - `--dangerously-skip-permissions`
-     - `--model gemini-3.8-flash-medium`
-     - `--print "use garbage-vision skill to Analyze this garbage photo completely. List EVERY item you can see."`
-     - Working directory: the newly created complaint folder.
-     - **Hidden Window**: Executed with `CREATE_NO_WINDOW` and `SW_HIDE` so **no terminal window pops up**.
+3. **Vision Analysis** (background thread, never blocks the upload response):
+   - With `GEMINI_API_KEY` set: the Gemini API is called for brand-level item detection.
+   - Without a key: `analyzer.generate_dynamic_image_analysis()` runs the offline
+     colour/edge pipeline (local-contrast grid, blob segmentation, HSV classification).
+   - If `torch` + `transformers` are installed, `backend/vision_ml.py` additionally loads
+     CLIP (`openai/clip-vit-base-patch32`) as a **verifier** — see below.
 4. **Artifact Generation in the Same Folder**:
    - **`report.json`**: Multi-item enumeration with 0–1000 2D bounding boxes (`box_2d`), SWM classification, resin codes, SUP infractions, and EPR brand audit.
    - **`annotated_photo.jpg`**: Colored bounding boxes drawn over detected items with brand and stream labels.
@@ -54,6 +53,29 @@ garbade/
    - **`report_summary.md`**: Executive forensic audit summary.
 5. **UI Update**:
    - Frontend reveals a summary modal with live preview of the annotated photo, key metrics (item count, SUP violations, estimated weight), and download links for the CSV and JSON files.
+
+---
+
+## 🛡️ The CLIP false-positive guard (`backend/vision_ml.py`)
+
+Pixel heuristics only measure contrast and edges, so a pug on a white backdrop or a flat-lay
+photo of a desk "pops" like a pile of wrappers. `vision_ml.py` loads the CLIP vision-language
+model once and asks it two questions:
+
+1. **Whole frame** — `P(litter)` from a softmax over 5 litter prompts vs 13 non-litter prompts.
+   Below `SCENE_LITTER_THRESHOLD` (0.50) the report is `0 items / CLEAN`, whatever the
+   heuristics proposed. Above `SCENE_LITTER_RESCUE` (0.80) it can also *re-open* a frame the
+   pixel gates wrongly dismissed.
+2. **Each box** — every proposed crop is re-scored; below `BOX_LITTER_THRESHOLD` (0.20) the
+   box is vetoed, so the officer only sees regions the model agrees contain waste.
+
+Measured on the project's labelled photos: genuine garbage 0.987–0.9998, non-litter
+(pugs, brick wall, landscape, desk, 12 unseen stock photos) 0.001–0.219 — the threshold sits
+in the middle of that gap.
+
+The module is **optional by design**: it is lazy-loaded, prints
+`[VISION ML] Disabled (...)` and steps aside when `torch` is missing (Render free tier = 512 MB),
+and `CV_ML=0` turns it off for side-by-side testing of the pure heuristics.
 
 ---
 
@@ -67,6 +89,11 @@ fails with "Pillow is not installed".
 ```bash
 cd ~/Desktop/CleanGreen-AI
 ./.venv/bin/python server.py
+```
+
+Optional — enables the CLIP false-positive guard (about 2.5 GB, local machines only):
+```bash
+./.venv/bin/python -m pip install torch transformers
 ```
 
 ### Or install the dependencies into the Python you already use

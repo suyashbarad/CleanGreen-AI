@@ -55,6 +55,11 @@ try:
 except ImportError:
     GENAI_AVAILABLE = False
 
+try:
+    import vision_ml
+except ImportError:
+    vision_ml = None
+
 
 # Stream Colors for visual bounding boxes (RGB tuples)
 STREAM_COLORS = {
@@ -499,11 +504,17 @@ def generate_dynamic_image_analysis(image_path: Path) -> str:
          discarded packaging, bottles and scraps pop against their surround.
       3. Segment flagged cells into blobs. One big blob whose deep interior is
          smooth and hue-tight is a scene subject (animal, vehicle, person),
-         not litter — reject it.
-      4. If littered, re-segment with stricter gates so individual artifact
+         not litter — reject it. A frame where one flat colour fills most of
+         the canvas (a cut-out on a seamless backdrop) is rejected too.
+      4. If a vision model is installed (backend/vision_ml.py), it re-reads the photo and
+         overrules this decision: P(litter) below the threshold clears the frame, a high
+         score rescues a frame the pixel gates missed.
+      5. If littered, re-segment with stricter gates so individual artifact
          clusters get their own tight bounding boxes (up to 12).
-      5. Classify each surviving cluster from its mean color/texture and emit
-         real bounding boxes. If nothing survives, the report has zero items.
+      6. Classify each surviving cluster from its mean color/texture and emit
+         real bounding boxes. Each box is cut out and re-checked by the model,
+         which vetoes the ones that are really road, wall or foreground. If
+         nothing survives, the report has zero items.
     """
     if not PIL_AVAILABLE:
         raise RuntimeError(
@@ -535,21 +546,45 @@ def generate_dynamic_image_analysis(image_path: Path) -> str:
 
             edge = [[0.0] * cols for _ in range(rows)]
             pop = [[0.0] * cols for _ in range(rows)]
+            cell_rgb = [[(0.0, 0.0, 0.0)] * cols for _ in range(rows)]
+            colour_buckets = {}
 
             for r in range(rows):
                 y0, y1 = r * cell, min((r + 1) * cell, small_h)
                 for c in range(cols):
                     x0, x1 = c * cell, min((c + 1) * cell, small_w)
                     e_sum = p_sum = n = 0
+                    cr = cg = cb = 0
                     for y in range(y0, y1):
                         for x in range(x0, x1):
                             p = px[x, y]
                             b = bx[x, y]
                             e_sum += epx[x, y]
                             p_sum += ((p[0] - b[0]) ** 2 + (p[1] - b[1]) ** 2 + (p[2] - b[2]) ** 2) ** 0.5
+                            cr += p[0]; cg += p[1]; cb += p[2]
                             n += 1
                     edge[r][c] = e_sum / n
                     pop[r][c] = p_sum / n
+                    cell_rgb[r][c] = (cr / n, cg / n, cb / n)
+                    key = (int(cr / n) // 32, int(cg / n) // 32, int(cb / n) // 32)
+                    colour_buckets[key] = colour_buckets.get(key, 0) + 1
+
+            # A seamless studio backdrop (cut-out animal / product on plain white) is the
+            # single most common colour over most of the frame and carries almost no edges.
+            total_cells = rows * cols
+            modal_key = max(colour_buckets, key=colour_buckets.get) if colour_buckets else None
+            modal_share = (colour_buckets[modal_key] / total_cells) if modal_key else 0.0
+            modal_rgb = ((modal_key[0] + 0.5) * 32, (modal_key[1] + 0.5) * 32, (modal_key[2] + 0.5) * 32) if modal_key else None
+
+            def is_backdrop_cell(r, c):
+                m = cell_rgb[r][c]
+                return edge[r][c] < 15 and ((m[0] - modal_rgb[0]) ** 2 + (m[1] - modal_rgb[1]) ** 2
+                                            + (m[2] - modal_rgb[2]) ** 2) ** 0.5 < 26
+
+            backdrop_share = (sum(1 for r in range(rows) for c in range(cols) if is_backdrop_cell(r, c))
+                              / total_cells) if modal_key else 0.0
+            frame_edge = sum(sum(row) for row in edge) / total_cells
+            is_studio_backdrop = modal_share >= 0.40 and backdrop_share >= 0.30 and frame_edge <= 25.0
 
             def segment(flag_fn, min_cells):
                 flagged = [[False] * cols for _ in range(rows)]
@@ -656,25 +691,52 @@ def generate_dynamic_image_analysis(image_path: Path) -> str:
             kept_coverage = kept_cells / total_cells if total_cells else 0.0
             mean_edge = (sum(edge[r][c] for b in kept for (r, c) in b) / kept_cells) if kept_cells else 0.0
             max_edge = max((sum(edge[r][c] for (r, c) in b) / len(b) for b in kept), default=0.0)
-            is_littered = bool(kept) and kept_coverage >= 0.02 and (
+            is_littered = bool(kept) and not is_studio_backdrop and kept_coverage >= 0.02 and (
                 len(kept) >= 2 or kept_coverage >= 0.05 or max_edge >= 22
             )
+
+            # Sparse scenes need real objects, not a scattering of noise cells: clouds,
+            # grass tips and dappled shadows each flag weakly on their own.
+            if is_littered and kept_coverage < 0.20:
+                biggest_blob = max((len(b) / total_cells for b in kept), default=0.0)
+                is_littered = biggest_blob >= 0.05
+
+            # --- Vision-model verifier: the heuristic proposes, CLIP disposes ---
+            ml_score = None
+            ml_rescue = False
+            if vision_ml is not None and vision_ml.use_ml():
+                ml_score = vision_ml.scene_litter_score(img_rgb)
+            if ml_score is not None:
+                if ml_score < vision_ml.SCENE_LITTER_THRESHOLD:
+                    is_littered = False
+                elif not is_littered and ml_score >= vision_ml.SCENE_LITTER_RESCUE:
+                    # The model sees an obvious pile the pixel gates missed.
+                    is_littered, ml_rescue = True, True
 
             if os.environ.get("CV_DEBUG"):
                 print(
                     f"[CV_DEBUG] {image_path.name}: grid={rows}x{cols} blobs={len(blobs)} kept={len(kept)} "
-                    f"coverage={kept_coverage:.3f} mean_edge={mean_edge:.1f} littered={is_littered}",
+                    f"coverage={kept_coverage:.3f} mean_edge={mean_edge:.1f} littered={is_littered} "
+                    f"ml_p_litter={'-' if ml_score is None else f'{ml_score:.4f}'} rescue={ml_rescue}",
                     flush=True,
                 )
 
             # --- Item pass: strict gates so each artifact cluster gets its own box ---
             detected_items = []
             if is_littered:
-                sub_blobs = segment(lambda r, c: (
-                    (pop[r][c] > 45 and edge[r][c] > 16)
-                    or pop[r][c] > 70
-                    or edge[r][c] > 48
-                ), min_cells=2)
+                def strict_gate(r, c):
+                    return ((pop[r][c] > 45 and edge[r][c] > 16)
+                            or pop[r][c] > 70
+                            or edge[r][c] > 48)
+
+                def loose_gate(r, c):
+                    return ((pop[r][c] > 30 and edge[r][c] > 12)
+                            or pop[r][c] > 55
+                            or edge[r][c] > 36)
+
+                # A rescued frame has already been read as litter by the vision model, so
+                # the item pass runs at scene sensitivity instead of artifact sensitivity.
+                sub_blobs = segment(loose_gate if ml_rescue else strict_gate, min_cells=2)
                 item_regions = []
                 for b in sub_blobs:
                     area_frac = len(b) / total_cells
@@ -800,25 +862,68 @@ def generate_dynamic_image_analysis(image_path: Path) -> str:
                     })
                     item_counter += 1
 
+            # Each proposed box is cut out and re-checked by the model; boxes that read as
+            # grass, shadow, asphalt or a foreground subject are thrown away.
+            box_scores = None
+            if detected_items and vision_ml is not None and vision_ml.use_ml():
+                box_scores = vision_ml.box_litter_scores(
+                    img_rgb, [it["bounding_box"] for it in detected_items])
+                survivors = []
+                for it, s in zip(detected_items, box_scores):
+                    if os.environ.get("CV_DEBUG"):
+                        print(f"[CV_ML]   {it['item_name'][:30]:30s} "
+                              f"{'n/a' if s is None else f'{s:.3f}'}", flush=True)
+                    if s is None or s >= vision_ml.BOX_LITTER_THRESHOLD:
+                        survivors.append(it)
+                detected_items = survivors
+                for n, it in enumerate(detected_items, 1):
+                    it["item_id"] = f"ITEM-{n:03d}"
+
             streams = {it["stream"] for it in detected_items}
             hazard = any(s in ("BIOMEDICAL_HAZARD", "HAZARDOUS_CHEMICAL") for s in streams)
-            metrics = build_metrics(detected_items, kept_coverage, mean_edge, f"{full_w}x{full_h}")
+            # After the subject/backdrop filters reject everything, nothing in the frame is litter.
+            metrics = build_metrics(detected_items, kept_coverage if is_littered else 0.0,
+                                    mean_edge, f"{full_w}x{full_h}")
 
             if not detected_items:
+                if ml_score is not None and ml_score < vision_ml.SCENE_LITTER_THRESHOLD:
+                    scene_note = (
+                        f"The CLIP vision model rates this frame {(1 - ml_score):.0%} not-litter "
+                        f"(P(litter)={ml_score:.3f}) — it reads as a scene or a subject, not as waste."
+                    )
+                elif is_studio_backdrop:
+                    scene_note = (
+                        f"{backdrop_share:.0%} of the frame is one flat, edge-free colour, which is a "
+                        f"seamless studio backdrop rather than a Pune street scene."
+                    )
+                elif ml_score is not None:
+                    scene_note = (
+                        f"The CLIP vision model rates the frame as waste (P(litter)={ml_score:.2f}), but every "
+                        f"region the pixel sweep proposed failed its per-region re-check, so nothing is reportable."
+                    )
+                else:
+                    scene_note = (
+                        f"The frame is dominated by a uniform scene/subject "
+                        f"({kept_coverage:.1%} anomalous coverage after subject filtering)."
+                    )
                 verdict, summary = "CLEAN", (
                     f"On-device heuristic sweep of the uploaded photo ({full_w}x{full_h}px): no scattered "
-                    f"waste artifacts detected. The frame is dominated by a uniform scene/subject "
-                    f"({kept_coverage:.1%} anomalous coverage after subject filtering). Scene appears clean."
+                    f"waste artifacts detected. {scene_note} Scene appears clean."
                 )
             else:
+                ml_note = (
+                    f" A CLIP vision model confirmed the scene (P(litter)={ml_score:.2f}) and vetoed "
+                    f"{len(box_scores) - len(detected_items)} false box(es)."
+                    if ml_score is not None and box_scores else ""
+                )
                 verdict = "UNSEGREGATED" if len(streams) > 1 else next(iter(streams))
                 summary = (
                     f"Multi-band sweep of the {full_w}x{full_h}px frame isolated {len(detected_items)} artifact "
                     f"cluster(s) over {kept_coverage:.1%} of the image (mean edge density {mean_edge:.1f}). "
                     f"Streams present: {', '.join(sorted(streams))}. Estimated load {metrics['estimated_weight_kg']} kg "
                     f"across {metrics['total_pieces']} pieces, {metrics['sup_infractions']} SUP-banned item(s). "
-                    f"Severity {metrics['severity']} ({metrics['severity_index']}/100) — {metrics['recommended_action']} "
-                    f"Set GEMINI_API_KEY on the backend for brand-level item identification."
+                    f"Severity {metrics['severity']} ({metrics['severity_index']}/100) — {metrics['recommended_action']}"
+                    f"{ml_note} Set GEMINI_API_KEY on the backend for brand-level item identification."
                 )
 
             payload = {

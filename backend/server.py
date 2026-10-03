@@ -515,9 +515,31 @@ def _ensure_image_libraries():
     os.execv(str(venv_python), [str(venv_python), str(script)] + sys.argv[1:])
 
 
+def _warm_vision_model():
+    """Load the CLIP verifier in the background so the first upload is not billed for it.
+
+    Hosts without torch (the Render free tier cannot hold it) print the reason once and
+    keep running on the colour/edge heuristics.
+    """
+    if os.environ.get("CV_ML", "1") == "0":
+        print("[VISION ML] CV_ML=0 - colour/edge heuristics only.", flush=True)
+        return
+    import threading
+
+    def load():
+        try:
+            import vision_ml
+            vision_ml.use_ml()
+        except Exception as err:
+            print(f"[VISION ML] Disabled ({type(err).__name__}: {err}).", flush=True)
+
+    threading.Thread(target=load, daemon=True).start()
+
+
 def run():
     _ensure_image_libraries()
     register_existing_complaint_hashes()
+    _warm_vision_model()
     server_address = ('', PORT)
     httpd = ThreadedHTTPServer(server_address, CleanGreenRequestHandler)
     url = f"http://localhost:{PORT}"

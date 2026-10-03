@@ -956,7 +956,7 @@ window.openForensicDrawerById = function (cid) {
 
     <!-- Forensic Summary Stats -->
     <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.6rem; margin-bottom: 0.65rem;">
-      ${metricTile("SEVERITY", (m.severity || (items.length ? 'UNSEVERED' : 'NONE')) + (m.severity_index ? ` ${m.severity_index}` : ''), m.severity_index ? 'index / 100' : 'no metrics yet', sevStyle)}
+      ${metricTile("SEVERITY", (m.severity || (items.length ? 'UNSEVERED' : 'NONE')) + (m.severity_index !== undefined ? ` ${m.severity_index}` : ''), m.severity ? 'index / 100' : 'no metrics yet', sevStyle)}
       ${metricTile("TOTAL ITEMS", m.item_count || items.length, m.artifact_clusters ? m.artifact_clusters + ' boxed regions' : 'distinct artifacts')}
       ${metricTile("SUP INFRACTIONS", m.sup_violations || m.sup_infractions || 0, 'banned single-use', (m.sup_violations || m.sup_infractions) > 0 ? { fg: "#dc2626", bg: "#fef2f2", border: "#fecaca" } : undefined)}
       ${metricTile("EST. LOAD", (m.estimated_weight_kg || 0) + " kg", m.total_pieces ? m.total_pieces + ' pieces' : 'estimated mass', m.estimated_weight_kg > 3 ? { fg: "#c2410c", bg: "#fff7ed", border: "#fed7aa" } : undefined)}
@@ -974,6 +974,13 @@ window.openForensicDrawerById = function (cid) {
     ` : ""}
 
     ${renderStreamBreakdown(m)}
+
+    ${report.summary ? `
+      <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 0.6rem 0.75rem; margin-bottom: 1rem; font-size: 0.72rem; color: #475569; line-height: 1.55;">
+        <i class="fa-solid fa-eye" style="color: #0f172a;"></i>
+        <strong style="color: #0f172a;">VISION AUDIT NOTE:</strong> ${esc(report.summary)}
+      </div>
+    ` : ""}
 
     <!-- Multi-Item Enumeration Table -->
     <div style="border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden;">

@@ -230,25 +230,6 @@
     },
     {
       "item_id": "ITEM-013",
-      "item_name": "Organic Food & Kitchen Waste Residue",
-      "count": 2,
-      "stream": "WET",
-      "material": "Biodegradable Matter",
-      "resin_code": "N/A",
-      "sup_violation": false,
-      "brand": "Decomposing Food Waste",
-      "confidence": 0.75,
-      "est_weight_kg": 0.94,
-      "condition": "Isolated artifact cluster (14 sectors, 2.6% of frame)",
-      "bounding_box": [
-        103,
-        8,
-        230,
-        254
-      ]
-    },
-    {
-      "item_id": "ITEM-014",
       "item_name": "Matted Soft-Plastic Film Bundle",
       "count": 2,
       "stream": "GENERIC_RESIDUAL",
@@ -271,33 +252,27 @@
   "hazard_flag": false,
   "metrics": {
     "severity": "CRITICAL",
-    "severity_index": 78,
+    "severity_index": 76,
     "frame_coverage_pct": 84.4,
-    "artifact_clusters": 14,
-    "total_pieces": 35,
+    "artifact_clusters": 13,
+    "total_pieces": 33,
     "sup_infractions": 2,
-    "estimated_weight_kg": 6.32,
-    "mean_confidence": 0.86,
+    "estimated_weight_kg": 5.38,
+    "mean_confidence": 0.87,
     "streams_detected": [
       "DRY_RECYCLABLE",
-      "GENERIC_RESIDUAL",
-      "WET"
+      "GENERIC_RESIDUAL"
     ],
     "stream_breakdown": {
       "DRY_RECYCLABLE": {
         "pieces": 28,
         "weight_kg": 5.02,
-        "share_pct": 79.4
+        "share_pct": 93.3
       },
       "GENERIC_RESIDUAL": {
         "pieces": 5,
         "weight_kg": 0.36,
-        "share_pct": 5.7
-      },
-      "WET": {
-        "pieces": 2,
-        "weight_kg": 0.94,
-        "share_pct": 14.9
+        "share_pct": 6.7
       }
     },
     "hazard_flag": false,
@@ -305,5 +280,5 @@
     "mean_edge_density": 53.0,
     "image_resolution": "1260x998"
   },
-  "summary": "Multi-band sweep of the 1260x998px frame isolated 14 artifact cluster(s) over 84.4% of the image (mean edge density 53.0). Streams present: DRY_RECYCLABLE, GENERIC_RESIDUAL, WET. Estimated load 6.32 kg across 35 pieces, 2 SUP-banned item(s). Severity CRITICAL (78/100) \u2014 Source segregation breach \u2014 dispatch compactor and issue spot notice. Set GEMINI_API_KEY on the backend for brand-level item identification."
+  "summary": "Multi-band sweep of the 1260x998px frame isolated 13 artifact cluster(s) over 84.4% of the image (mean edge density 53.0). Streams present: DRY_RECYCLABLE, GENERIC_RESIDUAL. Estimated load 5.38 kg across 33 pieces, 2 SUP-banned item(s). Severity CRITICAL (76/100) \u2014 Source segregation breach \u2014 dispatch compactor and issue spot notice. A CLIP vision model confirmed the scene (P(litter)=0.99) and vetoed 1 false box(es). Set GEMINI_API_KEY on the backend for brand-level item identification."
 }

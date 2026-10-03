@@ -11,5 +11,4 @@ ITEM-009,Foil Sheet from Lined Packaging,2,DRY_RECYCLABLE,Aluminium Laminate,ALU
 ITEM-010,Aluminium Aerosol / Spray Can,2,DRY_RECYCLABLE,Aluminium Alloy,ALU 41,False,Household Spray Tin,0.87,0.35,"Isolated artifact cluster (15 sectors, 2.7% of frame)","[865, 795, 992, 967]"
 ITEM-011,Crumpled Newspaper Sheet,2,DRY_RECYCLABLE,Newsprint,PAP 22,False,Daily Print Media,0.86,0.35,"Isolated artifact cluster (20 sectors, 3.7% of frame)","[865, 270, 992, 517]"
 ITEM-012,Paper Tea Cup / Cardboard Tube Core,2,DRY_RECYCLABLE,Moulded Fibre,PAP 20,False,Tea Stall Fibre Stock,0.84,0.35,"Isolated artifact cluster (19 sectors, 3.5% of frame)","[865, 8, 992, 254]"
-ITEM-013,Organic Food & Kitchen Waste Residue,2,WET,Biodegradable Matter,N/A,False,Decomposing Food Waste,0.75,0.94,"Isolated artifact cluster (14 sectors, 2.6% of frame)","[103, 8, 230, 254]"
-ITEM-014,Matted Soft-Plastic Film Bundle,2,GENERIC_RESIDUAL,Assorted Polymers,7 (OTHER),True,Parcel Wrap Tangle,0.76,0.14,"Isolated artifact cluster (13 sectors, 2.4% of frame)","[150, 533, 277, 742]"
+ITEM-013,Matted Soft-Plastic Film Bundle,2,GENERIC_RESIDUAL,Assorted Polymers,7 (OTHER),True,Parcel Wrap Tangle,0.76,0.14,"Isolated artifact cluster (13 sectors, 2.4% of frame)","[150, 533, 277, 742]"

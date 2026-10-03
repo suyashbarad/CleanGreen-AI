@@ -15,8 +15,8 @@
     "stream_breakdown": {},
     "hazard_flag": false,
     "recommended_action": "No action required \u2014 spot verified clean on re-scan.",
-    "mean_edge_density": 43.1,
-    "image_resolution": "800x569"
+    "mean_edge_density": 36.2,
+    "image_resolution": "929x700"
   },
-  "summary": "On-device heuristic sweep of the uploaded photo (800x569px): no scattered waste artifacts detected. The CLIP vision model rates this frame 94% not-litter (P(litter)=0.056) \u2014 it reads as a scene or a subject, not as waste. Scene appears clean."
+  "summary": "On-device heuristic sweep of the uploaded photo (929x700px): no scattered waste artifacts detected. The CLIP vision model rates this frame 100% not-litter (P(litter)=0.004) \u2014 it reads as a scene or a subject, not as waste. Scene appears clean."
 }

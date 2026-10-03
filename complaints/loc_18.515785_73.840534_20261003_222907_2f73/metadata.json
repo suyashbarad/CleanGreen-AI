@@ -1,0 +1,17 @@
+{
+  "complaint_id": "CMP-20261003_222907-5BE3",
+  "timestamp": "2026-10-03T16:59:07Z",
+  "local_time": "2026-10-03 22:29:07",
+  "timezone": "Asia/Kolkata",
+  "coordinates": {
+    "latitude": 18.515785,
+    "longitude": 73.840534
+  },
+  "address": "Deccan Gymkhana, Manohar Mahadev More Path, Deccan Gymkhana, Pune, Pune City Subdistrict, Pune District, Maharashtra, 411004, India",
+  "notes": "",
+  "status": "Pending",
+  "analysis_status": "completed",
+  "original_filename": "garbage8_trial.jpg",
+  "image_file": "waste_photo.jpg",
+  "image_hash": "9f8a6ca1341ee8577d8190873fef88d69e744a0f7e7abf72b7068cc3b1dc9b02"
+}

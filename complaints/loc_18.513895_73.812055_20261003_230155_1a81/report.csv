@@ -1,0 +1,10 @@
+item_id,item_name,count,stream,material,resin_code,sup_violation,brand,confidence,est_weight_kg,condition,bounding_box
+ITEM-001,Foil Sheet from Lined Packaging,2,DRY_RECYCLABLE,Aluminium Laminate,ALU 41,False,Foil-lined Snack Pack,0.86,0.35,"Isolated artifact cluster (36 sectors, 4.7% of frame)","[445, 258, 648, 492]"
+ITEM-002,Aluminium Aerosol / Spray Can,2,DRY_RECYCLABLE,Aluminium Alloy,ALU 41,False,Household Spray Tin,0.85,0.35,"Isolated artifact cluster (31 sectors, 4.0% of frame)","[445, 8, 648, 242]"
+ITEM-003,Crushed Tin Food / Oil Can,2,DRY_RECYCLABLE,Tinplate Steel,Fe 40,False,Tinned Grocery Container,0.83,0.34,"Isolated artifact cluster (31 sectors, 4.0% of frame)","[664, 8, 867, 242]"
+ITEM-004,Aluminium Foil Bakery Tray,2,DRY_RECYCLABLE,Aluminium Foil,ALU 41,False,Bakery Takeaway Tray,0.83,0.34,"Isolated artifact cluster (30 sectors, 3.9% of frame)","[476, 508, 648, 742]"
+ITEM-005,Discarded Cardboard / Paper Packaging,2,DRY_RECYCLABLE,Corrugated Paperboard,PAP 20,False,Shipping / Retail Packaging,0.83,0.34,"Isolated artifact cluster (29 sectors, 3.8% of frame)","[664, 258, 835, 492]"
+ITEM-006,Metal Bottle Cap / Crown Seal,2,DRY_RECYCLABLE,Tinplate / Aluminium,Fe 40,False,Beverage Closure,0.84,0.35,"Isolated artifact cluster (23 sectors, 3.0% of frame)","[508, 758, 648, 908]"
+ITEM-007,Flattened Corrugated Carton,2,DRY_RECYCLABLE,Corrugated Paperboard,PAP 21,False,E-Commerce Parcel Box,0.84,0.35,"Isolated artifact cluster (22 sectors, 2.9% of frame)","[664, 508, 804, 742]"
+ITEM-008,Torn Metal Bottle Cap / Crown Seal,2,DRY_RECYCLABLE,Tinplate / Aluminium,Fe 40,False,Beverage Closure,0.83,0.34,"Isolated artifact cluster (16 sectors, 2.1% of frame)","[664, 758, 742, 950]"
+ITEM-009,Crushed Transparent PET Bottle,1,DRY_RECYCLABLE,Polyethylene Terephthalate,1 (PETE),False,On-The-Go Beverage,0.83,0.17,"Isolated artifact cluster (7 sectors, 0.9% of frame)","[195, 508, 210, 742]"
