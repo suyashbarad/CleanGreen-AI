@@ -404,7 +404,8 @@ function setupControls() {
       longitude: uploadLng,
       address: uploadAddress,
       notes: notes,
-      client_complaint_id: instantId
+      client_complaint_id: instantId,
+      client_local_time: localComplaintObj.local_time
     });
 
     fetch("/api/submit-complaint", {

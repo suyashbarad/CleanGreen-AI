@@ -7,8 +7,10 @@
       "stream": "DRY_RECYCLABLE",
       "material": "Polyethylene Terephthalate",
       "resin_code": "1 (PETE)",
-      "sup_violation": true,
+      "sup_violation": false,
       "brand": "Bottled Water / Soft Drink",
+      "confidence": 0.89,
+      "est_weight_kg": 0.54,
       "condition": "Isolated artifact cluster (59 sectors, 6.1% of frame)",
       "bounding_box": [
         8,
@@ -24,8 +26,10 @@
       "stream": "DRY_RECYCLABLE",
       "material": "Polyethylene Terephthalate",
       "resin_code": "1 (PETE)",
-      "sup_violation": true,
+      "sup_violation": false,
       "brand": "On-The-Go Beverage",
+      "confidence": 0.94,
+      "est_weight_kg": 0.55,
       "condition": "Isolated artifact cluster (58 sectors, 6.0% of frame)",
       "bounding_box": [
         258,
@@ -43,6 +47,8 @@
       "resin_code": "PAP 20",
       "sup_violation": false,
       "brand": "Shipping / Retail Packaging",
+      "confidence": 0.89,
+      "est_weight_kg": 0.36,
       "condition": "Isolated artifact cluster (53 sectors, 5.5% of frame)",
       "bounding_box": [
         758,
@@ -60,6 +66,8 @@
       "resin_code": "PAP 21",
       "sup_violation": false,
       "brand": "E-Commerce Parcel Box",
+      "confidence": 0.88,
+      "est_weight_kg": 0.36,
       "condition": "Isolated artifact cluster (54 sectors, 5.6% of frame)",
       "bounding_box": [
         758,
@@ -77,6 +85,8 @@
       "resin_code": "PAP 21",
       "sup_violation": false,
       "brand": "Bakery / Grocer Satchel",
+      "confidence": 0.9,
+      "est_weight_kg": 0.54,
       "condition": "Isolated artifact cluster (59 sectors, 6.1% of frame)",
       "bounding_box": [
         508,
@@ -94,6 +104,8 @@
       "resin_code": "PAP 22",
       "sup_violation": false,
       "brand": "Daily Print Media",
+      "confidence": 0.89,
+      "est_weight_kg": 0.36,
       "condition": "Isolated artifact cluster (55 sectors, 5.7% of frame)",
       "bounding_box": [
         758,
@@ -111,6 +123,8 @@
       "resin_code": "PAP 20",
       "sup_violation": false,
       "brand": "Tea Stall Fibre Stock",
+      "confidence": 0.89,
+      "est_weight_kg": 0.36,
       "condition": "Isolated artifact cluster (55 sectors, 5.7% of frame)",
       "bounding_box": [
         258,
@@ -128,6 +142,8 @@
       "resin_code": "PAP 20",
       "sup_violation": false,
       "brand": "Poultry / Produce Tray",
+      "confidence": 0.89,
+      "est_weight_kg": 0.36,
       "condition": "Isolated artifact cluster (57 sectors, 5.9% of frame)",
       "bounding_box": [
         508,
@@ -145,6 +161,8 @@
       "resin_code": "N/A",
       "sup_violation": false,
       "brand": "Decomposing Food Waste",
+      "confidence": 0.83,
+      "est_weight_kg": 1.0,
       "condition": "Isolated artifact cluster (53 sectors, 5.5% of frame)",
       "bounding_box": [
         758,
@@ -162,6 +180,8 @@
       "resin_code": "PAP 22",
       "sup_violation": false,
       "brand": "Postal / Office Paper",
+      "confidence": 0.88,
+      "est_weight_kg": 0.36,
       "condition": "Isolated artifact cluster (46 sectors, 4.8% of frame)",
       "bounding_box": [
         258,
@@ -179,6 +199,8 @@
       "resin_code": "PAP 21",
       "sup_violation": false,
       "brand": "Street Food Serve Liner",
+      "confidence": 0.88,
+      "est_weight_kg": 0.36,
       "condition": "Isolated artifact cluster (48 sectors, 5.0% of frame)",
       "bounding_box": [
         508,
@@ -196,6 +218,8 @@
       "resin_code": "PAP 85",
       "sup_violation": false,
       "brand": "Gable-Top Carton Pack",
+      "confidence": 0.88,
+      "est_weight_kg": 0.36,
       "condition": "Isolated artifact cluster (45 sectors, 4.7% of frame)",
       "bounding_box": [
         258,
@@ -213,6 +237,8 @@
       "resin_code": "PAP 20",
       "sup_violation": false,
       "brand": "Retail Display Stock",
+      "confidence": 0.87,
+      "est_weight_kg": 0.35,
       "condition": "Isolated artifact cluster (43 sectors, 4.5% of frame)",
       "bounding_box": [
         583,
@@ -228,8 +254,10 @@
       "stream": "DRY_RECYCLABLE",
       "material": "Polyethylene Terephthalate",
       "resin_code": "1 (PETE)",
-      "sup_violation": true,
+      "sup_violation": false,
       "brand": "Pickles / Confection Pack",
+      "confidence": 0.87,
+      "est_weight_kg": 0.35,
       "condition": "Isolated artifact cluster (30 sectors, 3.1% of frame)",
       "bounding_box": [
         133,
@@ -241,5 +269,35 @@
   ],
   "segregation_verdict": "UNSEGREGATED",
   "hazard_flag": false,
-  "summary": "On-device heuristic sweep of the uploaded photo (866x1390px): anomalous regions covering 85.0% of the frame segmented into 14 artifact cluster(s) (mean edge density 57.0). Streams present: DRY_RECYCLABLE, WET. For per-item AI identification, configure GEMINI_API_KEY on the backend (Google AI Studio free tier)."
+  "metrics": {
+    "severity": "HIGH",
+    "severity_index": 69,
+    "frame_coverage_pct": 85.0,
+    "artifact_clusters": 14,
+    "total_pieces": 31,
+    "sup_infractions": 0,
+    "estimated_weight_kg": 6.21,
+    "mean_confidence": 0.88,
+    "streams_detected": [
+      "DRY_RECYCLABLE",
+      "WET"
+    ],
+    "stream_breakdown": {
+      "DRY_RECYCLABLE": {
+        "pieces": 29,
+        "weight_kg": 5.21,
+        "share_pct": 83.9
+      },
+      "WET": {
+        "pieces": 2,
+        "weight_kg": 1.0,
+        "share_pct": 16.1
+      }
+    },
+    "hazard_flag": false,
+    "recommended_action": "Source segregation breach \u2014 dispatch compactor and issue spot notice.",
+    "mean_edge_density": 57.0,
+    "image_resolution": "866x1390"
+  },
+  "summary": "Multi-band sweep of the 866x1390px frame isolated 14 artifact cluster(s) over 85.0% of the image (mean edge density 57.0). Streams present: DRY_RECYCLABLE, WET. Estimated load 6.21 kg across 31 pieces, 0 SUP-banned item(s). Severity HIGH (69/100) \u2014 Source segregation breach \u2014 dispatch compactor and issue spot notice. Set GEMINI_API_KEY on the backend for brand-level item identification."
 }

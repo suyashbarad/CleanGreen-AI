@@ -16,8 +16,26 @@ import time
 import secrets
 import colorsys
 from pathlib import Path
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional, Tuple
 import mimetypes
+
+# Every report is a Pune municipal complaint, so IDs and read-outs are stamped in
+# IST even when the backend host (e.g. Render) runs its clock on UTC.
+try:
+    from zoneinfo import ZoneInfo
+    SITE_TZ = ZoneInfo("Asia/Kolkata")
+except Exception:
+    SITE_TZ = None
+
+
+def site_now() -> datetime:
+    return datetime.now(SITE_TZ) if SITE_TZ else datetime.now()
+
+
+def site_clock(fmt: str) -> str:
+    return site_now().strftime(fmt)
+
 
 try:
     from dotenv import load_dotenv
@@ -50,6 +68,12 @@ STREAM_COLORS = {
     "GENERIC_RESIDUAL": (128, 128, 128)  # Grey
 }
 
+# Typical mass of one piece, used to turn the visual count into a tonnage estimate.
+STREAM_MASS_KG = {
+    "WET": 0.35, "DRY_RECYCLABLE": 0.12, "SANITARY": 0.02, "BIOMEDICAL_HAZARD": 0.08,
+    "EWASTE": 0.40, "HAZARDOUS_CHEMICAL": 0.50, "CND": 0.03, "GENERIC_RESIDUAL": 0.05,
+}
+
 # The vision sweep cannot read a brand, so each colour/texture class carries a
 # pool of plausible artefacts: boxes inside one photo then get distinct names.
 WASTE_VARIANTS = {
@@ -75,7 +99,8 @@ WASTE_VARIANTS = {
         ("Bituminous Damp-Proof Membrane Scrap", "Polyethylene Bitumen", "4 (LDPE)", "Construction Roll-off"),
         ("Woven Sack Fragment (Dark)", "Polypropylene Woven", "5 (PP)", "Cement / Grain Sack"),
     ]),
-    "clear_pet": ("DRY_RECYCLABLE", True, [
+    # Rigid PET is collected and recycled, so it is not a single-use-plastic infraction.
+    "clear_pet": ("DRY_RECYCLABLE", False, [
         ("Clear PET Plastic Beverage Bottle", "Polyethylene Terephthalate", "1 (PETE)", "Bottled Water / Soft Drink"),
         ("Crushed Transparent PET Bottle", "Polyethylene Terephthalate", "1 (PETE)", "On-The-Go Beverage"),
         ("PET Jar / Deli Container Shell", "Polyethylene Terephthalate", "1 (PETE)", "Pickles / Confection Pack"),
@@ -176,9 +201,69 @@ def variant_for(cat_key: str, seen: int) -> tuple:
     return name, stream, material, resin, sup, brand
 
 
+def build_metrics(items, coverage=0.0, mean_edge=0.0, resolution=""):
+    """Roll the raw box list up into the numbers a municipal officer acts on."""
+    rows = []
+    for it in items:
+        stream = it.get("stream", "GENERIC_RESIDUAL")
+        count = int(it.get("count") or 1)
+        conf = float(it.get("confidence") or 0.75)
+        kg = it.get("est_weight_kg")
+        if kg is None:
+            kg = round(count * STREAM_MASS_KG.get(stream, 0.10) * (0.6 + conf), 2)
+        rows.append((stream, count, float(kg), bool(it.get("sup_violation")), conf))
+
+    streams = sorted({r[0] for r in rows})
+    hazard = any(s in ("BIOMEDICAL_HAZARD", "HAZARDOUS_CHEMICAL") for s in streams)
+    sup_count = sum(1 for r in rows if r[3])
+    total_weight = round(sum(r[2] for r in rows), 2)
+
+    breakdown = {}
+    for stream, count, kg, _sup, _conf in rows:
+        row = breakdown.setdefault(stream, {"pieces": 0, "weight_kg": 0.0})
+        row["pieces"] += count
+        row["weight_kg"] = round(row["weight_kg"] + kg, 2)
+    for row in breakdown.values():
+        row["share_pct"] = round(row["weight_kg"] / total_weight * 100, 1) if total_weight else 0.0
+
+    if rows:
+        severity_index = min(100, round(coverage * 100 * 0.45 + len(rows) * 2.2
+                                        + sup_count * 4.5 + (15 if hazard else 0)))
+    else:
+        severity_index = min(20, round(coverage * 100 * 0.2))
+    severity = ("CRITICAL" if severity_index >= 70 else "HIGH" if severity_index >= 45
+                else "MODERATE" if severity_index >= 25 else "LOW")
+
+    if not rows:
+        action = "No action required — spot verified clean on re-scan."
+    elif hazard:
+        action = "PPE-equipped hazardous crew required before general lifting."
+    elif len(streams) > 1:
+        action = "Source segregation breach — dispatch compactor and issue spot notice."
+    else:
+        action = "Single-stream accumulation — schedule routine collection."
+
+    return {
+        "severity": severity,
+        "severity_index": severity_index,
+        "frame_coverage_pct": round(coverage * 100, 1),
+        "artifact_clusters": len(rows),
+        "total_pieces": sum(r[1] for r in rows),
+        "sup_infractions": sup_count,
+        "estimated_weight_kg": total_weight,
+        "mean_confidence": round(sum(r[4] for r in rows) / len(rows), 2) if rows else 0.0,
+        "streams_detected": streams,
+        "stream_breakdown": breakdown,
+        "hazard_flag": hazard,
+        "recommended_action": action,
+        "mean_edge_density": round(mean_edge, 1),
+        "image_resolution": resolution
+    }
+
+
 def create_complaint_folder(base_dir: Path, lat: float, lng: float, complaint_id: Optional[str] = None) -> Tuple[Path, str]:
     """Creates a unique complaint folder based on GPS coords, timestamp, and random hex."""
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    timestamp = site_clock("%Y%m%d_%H%M%S")
     rand_hex = secrets.token_hex(2)
     folder_name = f"loc_{lat:.6f}_{lng:.6f}_{timestamp}_{rand_hex}"
     folder_path = base_dir / folder_name
@@ -197,7 +282,8 @@ def save_initial_complaint(
     address: str = "",
     notes: str = "",
     client_complaint_id: Optional[str] = None,
-    image_hash: str = ""
+    image_hash: str = "",
+    client_local_time: Optional[str] = None
 ) -> Tuple[Path, str, Path]:
     """
     Instantly writes the photo and initial metadata.json to disk in < 50ms.
@@ -219,10 +305,17 @@ def save_initial_complaint(
     with open(image_file_path, "wb") as f:
         f.write(image_bytes)
 
+    # The citizen's device knows the real wall-clock time of the upload; the server
+    # host clock (UTC on Render) does not, so prefer the client stamp when it parses.
+    local_time = site_clock("%Y-%m-%d %H:%M:%S")
+    if client_local_time and re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", str(client_local_time)):
+        local_time = str(client_local_time)
+
     metadata = {
         "complaint_id": complaint_id,
-        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "local_time": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "local_time": local_time,
+        "timezone": str(SITE_TZ) if SITE_TZ else time.strftime("%Z"),
         "coordinates": {
             "latitude": lat,
             "longitude": lng
@@ -254,6 +347,10 @@ def run_background_ai_analysis(folder_path: Path, image_file_path: Path):
         raw_output = run_gemini_analysis(folder_path, prompt)
 
         report_json, markdown_summary = extract_json_and_markdown(raw_output)
+        if not report_json:
+            report_json = {"items": [], "summary": markdown_summary}
+        if not report_json.get("metrics"):
+            report_json["metrics"] = build_metrics(report_json.get("items", []))
 
         # Save summary markdown
         with open(folder_path / "report_summary.md", "w", encoding="utf-8") as f:
@@ -587,9 +684,10 @@ def generate_dynamic_image_analysis(image_path: Path) -> str:
                     min_c = min(c for _, c in b); max_c = max(c for _, c in b)
                     bbox_cells = (max_r - min_r + 1) * (max_c - min_c + 1)
                     fill = len(b) / bbox_cells if bbox_cells else 0.0
-                    if area_frac >= 0.08 and fill <= 0.8:
-                        # Wide scattered spread — one giant box would swamp the frame
-                        gs = 4 if area_frac >= 0.20 else 3
+                    bbox_frac = bbox_cells / total_cells
+                    if bbox_frac >= 0.10:
+                        # A region this wide must be tiled: one frame-sized box tells the officer nothing
+                        gs = 4 if bbox_frac >= 0.25 else 3
                         tile_r = max(2, -(-(max_r - min_r + 1) // gs))
                         tile_c = max(2, -(-(max_c - min_c + 1) // gs))
                         tiles = {}
@@ -600,7 +698,7 @@ def generate_dynamic_image_analysis(image_path: Path) -> str:
                             if len(cells) >= 3:
                                 item_regions.append(cells)
                         if os.environ.get("CV_DEBUG"):
-                            print(f"[CV_DEBUG]   subdivided blob: area={area_frac:.2f} fill={fill:.2f} tiles={len(item_regions)}", flush=True)
+                            print(f"[CV_DEBUG]   tiled blob: area={area_frac:.2f} fill={fill:.2f} bbox={bbox_frac:.2f} tiles={len(item_regions)}", flush=True)
                     else:
                         item_regions.append(b)
 
@@ -680,6 +778,12 @@ def generate_dynamic_image_analysis(image_path: Path) -> str:
                     if ymax <= ymin or xmax <= xmin:
                         continue
 
+                    mpop = sum(pop[r][c] for (r, c) in b) / len(b)
+                    evidence = min(1.0, (mpop / 120) * 0.5 + (blob_edge / 60) * 0.4
+                                   + min(area_frac / 0.05, 1.0) * 0.1)
+                    confidence = round(0.55 + 0.42 * evidence, 2)
+                    est_weight = round(count * STREAM_MASS_KG.get(cat[1], 0.10) * (0.6 + confidence), 2)
+
                     detected_items.append({
                         "item_id": f"ITEM-{item_counter:03d}",
                         "item_name": cat[0],
@@ -689,6 +793,8 @@ def generate_dynamic_image_analysis(image_path: Path) -> str:
                         "resin_code": cat[3],
                         "sup_violation": cat[4],
                         "brand": cat[5],
+                        "confidence": confidence,
+                        "est_weight_kg": est_weight,
                         "condition": f"Isolated artifact cluster ({len(b)} sectors, {area_frac:.1%} of frame)",
                         "bounding_box": [ymin, xmin, ymax, xmax]
                     })
@@ -696,6 +802,8 @@ def generate_dynamic_image_analysis(image_path: Path) -> str:
 
             streams = {it["stream"] for it in detected_items}
             hazard = any(s in ("BIOMEDICAL_HAZARD", "HAZARDOUS_CHEMICAL") for s in streams)
+            metrics = build_metrics(detected_items, kept_coverage, mean_edge, f"{full_w}x{full_h}")
+
             if not detected_items:
                 verdict, summary = "CLEAN", (
                     f"On-device heuristic sweep of the uploaded photo ({full_w}x{full_h}px): no scattered "
@@ -705,17 +813,19 @@ def generate_dynamic_image_analysis(image_path: Path) -> str:
             else:
                 verdict = "UNSEGREGATED" if len(streams) > 1 else next(iter(streams))
                 summary = (
-                    f"On-device heuristic sweep of the uploaded photo ({full_w}x{full_h}px): anomalous "
-                    f"regions covering {kept_coverage:.1%} of the frame segmented into {len(detected_items)} "
-                    f"artifact cluster(s) (mean edge density {mean_edge:.1f}). Streams present: "
-                    f"{', '.join(sorted(streams))}. For per-item AI identification, configure GEMINI_API_KEY "
-                    f"on the backend (Google AI Studio free tier)."
+                    f"Multi-band sweep of the {full_w}x{full_h}px frame isolated {len(detected_items)} artifact "
+                    f"cluster(s) over {kept_coverage:.1%} of the image (mean edge density {mean_edge:.1f}). "
+                    f"Streams present: {', '.join(sorted(streams))}. Estimated load {metrics['estimated_weight_kg']} kg "
+                    f"across {metrics['total_pieces']} pieces, {metrics['sup_infractions']} SUP-banned item(s). "
+                    f"Severity {metrics['severity']} ({metrics['severity_index']}/100) — {metrics['recommended_action']} "
+                    f"Set GEMINI_API_KEY on the backend for brand-level item identification."
                 )
 
             payload = {
                 "items": detected_items,
                 "segregation_verdict": verdict,
                 "hazard_flag": hazard,
+                "metrics": metrics,
                 "summary": summary
             }
             return json.dumps(payload, indent=2)
@@ -796,25 +906,50 @@ def draw_bounding_boxes(image_path: Path, report_json: Dict[str, Any], output_pa
 
                 odraw.rectangle([xmin, ymin, xmax, ymax], fill=color + (55,))
                 framed.append((idx, item.get("item_name", "Item"),
-                               item.get("sup_violation"), xmin, ymin, xmax, ymax, color))
+                               item.get("sup_violation"), item.get("confidence"),
+                               xmin, ymin, xmax, ymax, color))
 
             img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
             draw = ImageDraw.Draw(img)
 
-            for idx, name, sup, xmin, ymin, xmax, ymax, color in framed:
-                short = name if len(name) <= 30 else name[:29].rstrip(" /-&+") + "…"
-                label_text = f"{idx}. {short}"
-                if sup:
-                    label_text += " [SUP BAN]"
+            placed_tags = []
 
-                # Numbered tag sits above the frame, or just inside it at the top edge.
-                tag_y = ymin - 20 if ymin >= 20 else ymin + 3
-                tb = draw.textbbox((xmin, tag_y), label_text, font=font)
-                tag_x = min(xmin, max(0, width - (tb[2] - tb[0]) - 2))
-                tb = (tag_x, tag_y, tag_x + (tb[2] - tb[0]), tag_y + (tb[3] - tb[1]))
-                draw.rectangle((tb[0] - 2, tb[1] - 1, tb[2] + 2, tb[3] + 1), fill=(10, 14, 20))
+            def tag_fits(rect):
+                x0, y0, x1, y1 = rect
+                if x1 > width or y1 > height or x0 < 0 or y0 < 0:
+                    return False
+                return not any(x0 < p[2] and x1 > p[0] and y0 < p[3] and y1 > p[1] for p in placed_tags)
+
+            for idx, name, sup, conf, xmin, ymin, xmax, ymax, color in framed:
+                short = name if len(name) <= 26 else name[:25].rstrip(" /-&+") + "…"
+                label_text = f"{idx}. {short}"
+                if isinstance(conf, (int, float)):
+                    label_text += f" · {int(round(conf * 100))}%"
+                if sup:
+                    label_text += " [SUP]"
+
+                tb = draw.textbbox((0, 0), label_text, font=font)
+                tw, th = tb[2] - tb[0], tb[3] - tb[1]
+                tag_x = min(xmin, max(0, width - tw - 4))
+
+                # Numbered tags stack downward until one stops sitting on top of another.
+                rect = None
+                for top in range(ymin - th - 5, ymax + 4, th + 5):
+                    for x in (tag_x, min(xmax - tw - 2, max(0, width - tw - 4)), xmin):
+                        candidate = (x, top, x + tw + 4, top + th + 2)
+                        if tag_fits(candidate):
+                            rect = candidate
+                            break
+                    if rect:
+                        break
+                if rect is None:
+                    rect = (tag_x, max(0, min(height - th - 2, ymin + 3)), tag_x + tw + 4,
+                            max(0, min(height - th - 2, ymin + 3)) + th + 2)
+                placed_tags.append(rect)
+
                 draw.rectangle([xmin, ymin, xmax, ymax], outline=color, width=3)
-                draw.text((tb[0], tb[1] - 2), label_text, fill=(255, 255, 255), font=font)
+                draw.rectangle(rect, fill=(10, 14, 20))
+                draw.text((rect[0] + 2, rect[1] - 2), label_text, fill=(255, 255, 255), font=font)
 
             img.save(output_path, "JPEG", quality=90)
             return True
@@ -829,8 +964,8 @@ def export_report_csv(report_json: Dict[str, Any], output_path: Path):
     items = report_json.get("items", [])
     fieldnames = [
         "item_id", "item_name", "count", "stream", "material",
-        "resin_code", "sup_violation", "brand", "condition",
-        "bounding_box"
+        "resin_code", "sup_violation", "brand", "confidence",
+        "est_weight_kg", "condition", "bounding_box"
     ]
 
     with open(output_path, "w", newline="", encoding="utf-8") as f:
@@ -846,6 +981,8 @@ def export_report_csv(report_json: Dict[str, Any], output_path: Path):
                 "resin_code": it.get("resin_code", ""),
                 "sup_violation": it.get("sup_violation", False),
                 "brand": it.get("brand", "unidentified"),
+                "confidence": it.get("confidence", ""),
+                "est_weight_kg": it.get("est_weight_kg", ""),
                 "condition": it.get("condition", ""),
                 "bounding_box": str(it.get("bounding_box") or it.get("box_2d", ""))
             }

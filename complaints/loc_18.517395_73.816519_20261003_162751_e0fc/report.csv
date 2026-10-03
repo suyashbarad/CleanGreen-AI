@@ -1,1 +1,1 @@
-item_id,item_name,count,stream,material,resin_code,sup_violation,brand,condition,bounding_box
+item_id,item_name,count,stream,material,resin_code,sup_violation,brand,confidence,est_weight_kg,condition,bounding_box

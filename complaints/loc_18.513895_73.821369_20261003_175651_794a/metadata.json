@@ -1,0 +1,16 @@
+{
+  "complaint_id": "CMP-20261003_175651-CE30",
+  "timestamp": "2026-10-03T12:26:51Z",
+  "local_time": "2026-10-03 17:56:51",
+  "coordinates": {
+    "latitude": 18.513895,
+    "longitude": 73.821369
+  },
+  "address": "Maharashtra Institute of Technology World Peace University, Vishwashanti Marg, Kothrud, Erandwane, Pune, Pune City Subdistrict, Pune District, Maharashtra, 411038, India",
+  "notes": "",
+  "status": "Pending",
+  "analysis_status": "completed",
+  "original_filename": "garbage7.jpg",
+  "image_file": "waste_photo.jpg",
+  "image_hash": "95b21d0fff255c62cfd4582a65f9032e963787ed5973a993b44bc47fc613011a"
+}

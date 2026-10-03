@@ -26,12 +26,14 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 BACKEND_DIR = Path(__file__).resolve().parent
 FRONTEND_DIR = BASE_DIR / "front end"
-COMPLAINTS_DIR = BASE_DIR / "complaints"
+# Render's disk is reset on every restart/redeploy; point this at a mounted
+# Persistent Disk there so filed complaints survive.
+COMPLAINTS_DIR = Path(os.environ.get("COMPLAINTS_DIR") or (BASE_DIR / "complaints"))
 COMPLAINTS_DIR.mkdir(parents=True, exist_ok=True)
 OSM_BINS_FILE = BASE_DIR / "pune_osm_bins.json"
 
 sys.path.insert(0, str(BACKEND_DIR))
-from analyzer import save_initial_complaint, run_background_ai_analysis
+from analyzer import save_initial_complaint, run_background_ai_analysis, build_metrics
 
 PORT = 8000
 
@@ -61,6 +63,22 @@ def register_existing_complaint_hashes():
             print(f"[BACKEND] Could not read {meta_file}: {err}")
     if count:
         print(f"[BACKEND] Dedupe registry loaded {count} previously reported photo(s).")
+
+
+def coverage_from_boxes(items):
+    """Sum of box areas as a share of the frame, for reports saved before metrics existed.
+
+    Bounding boxes are relative 0-1000 [ymin, xmin, ymax, xmax] rectangles.
+    """
+    total = 0.0
+    for it in items:
+        box = it.get("bounding_box") or it.get("box_2d") or []
+        if len(box) == 4:
+            try:
+                total += max(0, int(box[2]) - int(box[0])) * max(0, int(box[3]) - int(box[1])) / 1_000_000
+            except (TypeError, ValueError):
+                continue
+    return min(1.0, total)
 
 
 
@@ -158,11 +176,15 @@ class CleanGreenRequestHandler(http.server.SimpleHTTPRequestHandler):
                                         with open(report_file, "r", encoding="utf-8") as rf:
                                             report_content = json.load(rf)
                                             items = report_content.get("items", [])
+                                            # Reports saved before the metrics engine get it computed on read.
+                                            metrics = report_content.get("metrics") or build_metrics(
+                                                items, coverage=coverage_from_boxes(items))
                                             item["stats"] = {
                                                 "item_count": len(items),
                                                 "sup_violations": sum(1 for it in items if it.get("sup_violation") is True),
                                                 "hazard_flag": report_content.get("hazard_flag", False),
-                                                "segregation_verdict": report_content.get("segregation_verdict", "unsegregated")
+                                                "segregation_verdict": report_content.get("segregation_verdict", "unsegregated"),
+                                                **metrics
                                             }
                                             item["report"] = report_content
                                     except Exception:
@@ -181,6 +203,7 @@ class CleanGreenRequestHandler(http.server.SimpleHTTPRequestHandler):
                             except Exception as err:
                                 print(f"Error reading complaint folder {folder.name}: {err}")
             
+            complaints.sort(key=lambda c: str(c.get("timestamp") or ""), reverse=True)
             self.wfile.write(json.dumps({"complaints": complaints, "total": len(complaints)}).encode('utf-8'))
             return
 
@@ -337,6 +360,7 @@ class CleanGreenRequestHandler(http.server.SimpleHTTPRequestHandler):
                     address = data.get('address', 'MIT-WPU Kothrud, Pune')
                     notes = data.get('notes', '')
                     client_complaint_id = data.get('client_complaint_id') or None
+                    client_local_time = data.get('client_local_time') or None
                 else:
                     self.send_error(400, "Content-Type must be application/json")
                     return
@@ -369,7 +393,8 @@ class CleanGreenRequestHandler(http.server.SimpleHTTPRequestHandler):
                     address=address,
                     notes=notes,
                     client_complaint_id=client_complaint_id,
-                    image_hash=image_hash
+                    image_hash=image_hash,
+                    client_local_time=client_local_time
                 )
 
                 with _HASH_LOCK:
@@ -505,7 +530,8 @@ def run():
     print("=" * 70)
 
     try:
-        webbrowser.open(url)
+        if not os.environ.get("NO_BROWSER"):
+            webbrowser.open(url)
     except Exception:
         pass
 

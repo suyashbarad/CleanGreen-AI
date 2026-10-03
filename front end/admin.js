@@ -239,6 +239,8 @@ async function loadData(isSilent = false) {
     });
 
     let mergedComplaints = Array.from(complaintMap.values());
+    // Newest first: the backend keys its folders by GPS coordinate, so folder order is not date order.
+    mergedComplaints.sort((a, b) => String(b.timestamp || "").localeCompare(String(a.timestamp || "")));
     if (mergedComplaints.length === 0) {
       mergedComplaints = getSamplePuneComplaints();
     }
@@ -687,7 +689,7 @@ function renderComplaintsLedger(list) {
 
   complaintsContainer.innerHTML = list.map((c) => {
     const urls = c.urls || {};
-    const stats = c.stats || {};
+    const stats = { ...((c.report && c.report.metrics) || {}), ...(c.stats || {}) };
     const isFailed = c.analysis_status === "failed";
     const isProcessing = !isFailed && (c.analysis_status === "in_progress" || (!urls.annotated_image && !c.report));
     const imgUrl = urls.annotated_image || urls.original_image || "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100'><rect fill='%23e2e8f0' width='100' height='100'/></svg>";
@@ -723,7 +725,7 @@ function renderComplaintsLedger(list) {
             <i class="fa-solid fa-location-dot" style="color: #059669;"></i> ${c.address || "Pune Blackspot"}
           </div>
           <div style="font-size: 0.72rem; color: #64748b;">
-            <i class="fa-regular fa-clock"></i> ${c.local_time || c.timestamp || "Recent"}
+            <i class="fa-regular fa-clock"></i> ${formatUploadTime(c)}
           </div>
           <div class="complaint-metrics-row">
             ${isProcessing ? `
@@ -754,14 +756,78 @@ function renderComplaintsLedger(list) {
                 </div>
               </div>
             ` : `
-              <div class="c-metric">Items: <strong>${stats.item_count || 0}</strong></div>
-              <div class="c-metric">SUP Violations: <strong style="color: ${stats.sup_violations > 0 ? '#dc2626' : '#059669'}">${stats.sup_violations || 0}</strong></div>
+              <div class="c-metric">Items: <strong>${stats.item_count || 0}</strong> &middot; <strong style="color: ${(SEVERITY_STYLE[stats.severity] || {}).fg || '#0f172a'}">${stats.severity || 'N/A'}${stats.severity_index ? ' ' + stats.severity_index : ''}</strong></div>
+              <div class="c-metric">SUP Violations: <strong style="color: ${stats.sup_violations > 0 ? '#dc2626' : '#059669'}">${stats.sup_violations || 0}</strong>${stats.estimated_weight_kg ? ` &middot; Est. <strong>${stats.estimated_weight_kg} kg</strong>` : ''}</div>
             `)}
           </div>
         </div>
       </div>
     `;
   }).join("");
+}
+
+// Forensic metric tiles for the drawer (backend sends these inside complaint.stats)
+const SEVERITY_STYLE = {
+  CRITICAL: { fg: "#b91c1c", bg: "#fef2f2", border: "#fecaca" },
+  HIGH:     { fg: "#c2410c", bg: "#fff7ed", border: "#fed7aa" },
+  MODERATE: { fg: "#a16207", bg: "#fefce8", border: "#fde68a" },
+  LOW:      { fg: "#059669", bg: "#f0fdf4", border: "#bbf7d0" }
+};
+
+const STREAM_LABEL = {
+  WET: "Wet / Organic", DRY_RECYCLABLE: "Dry Recyclable", SANITARY: "Sanitary Waste",
+  BIOMEDICAL_HAZARD: "Biomedical", EWASTE: "E-Waste", HAZARDOUS_CHEMICAL: "Hazardous",
+  CND: "CND", GENERIC_RESIDUAL: "Generic Residual"
+};
+
+function metricTile(label, value, sub, style) {
+  const s = style || { fg: "#0f172a", bg: "#f8fafc", border: "#e2e8f0" };
+  return `
+    <div style="background: ${s.bg}; border: 1px solid ${s.border}; border-radius: 6px; padding: 0.6rem; text-align: center;">
+      <div style="font-size: 0.62rem; color: ${s.fg}; font-weight: 700; letter-spacing: 0.03em;">${label}</div>
+      <div style="font-size: ${String(value).length > 9 ? "0.95rem" : "1.2rem"}; font-weight: 800; color: ${s.fg}; line-height: 1.2;">${value}</div>
+      <div style="font-size: 0.6rem; color: #64748b; font-weight: 600;">${sub || ""}</div>
+    </div>
+  `;
+}
+
+function renderStreamBreakdown(stats) {
+  const breakdown = stats.stream_breakdown || {};
+  const streams = Object.keys(breakdown);
+  if (!streams.length) return "";
+  const palette = { WET: "#059669", DRY_RECYCLABLE: "#2563eb", GENERIC_RESIDUAL: "#64748b", SANITARY: "#db2777", BIOMEDICAL_HAZARD: "#dc2626", EWASTE: "#7c3aed", HAZARDOUS_CHEMICAL: "#ea580c", CND: "#0d9488" };
+  const ordered = streams.sort((a, b) => (breakdown[b].share_pct || 0) - (breakdown[a].share_pct || 0));
+  return `
+    <div style="border: 1px solid #e2e8f0; border-radius: 6px; padding: 0.65rem 0.75rem; margin-bottom: 1.25rem; background: #ffffff;">
+      <div style="font-size: 0.68rem; font-weight: 700; color: #334155; margin-bottom: 0.45rem;">
+        <i class="fa-solid fa-chart-pie"></i> WASTE STREAM SPLIT (${stats.total_pieces || 0} PIECES &middot; ${stats.estimated_weight_kg || 0} kg)
+      </div>
+      <div style="display: flex; height: 10px; border-radius: 999px; overflow: hidden; background: #f1f5f9;">
+        ${ordered.map(k => `<div style="width: ${breakdown[k].share_pct || 0}%; background: ${palette[k] || '#94a3b8'};" title="${k}"></div>`).join("")}
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 0.5rem;">
+        ${ordered.map(k => `
+          <span style="font-size: 0.66rem; color: #475569; font-weight: 600;">
+            <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${palette[k] || '#94a3b8'};margin-right:4px;"></span>
+            ${STREAM_LABEL[k] || k} — ${breakdown[k].share_pct}% &middot; ${breakdown[k].weight_kg} kg
+          </span>
+        `).join("")}
+      </div>
+    </div>
+  `;
+}
+
+// Stored `timestamp` is UTC; render it in the viewer's clock so a UTC-hosted
+// backend (Render) does not show complaints 5½ hours early.
+function formatUploadTime(c) {
+  const d = c.timestamp ? new Date(c.timestamp) : null;
+  if (d && !isNaN(d)) {
+    return d.toLocaleString("en-IN", {
+      day: "2-digit", month: "short", year: "numeric",
+      hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true
+    });
+  }
+  return c.local_time || "Recent";
 }
 
 // Open Forensic Drawer by Complaint ID
@@ -777,7 +843,16 @@ window.openForensicDrawerById = function (cid) {
   const urls = complaint.urls || {};
   const report = complaint.report || {};
   const items = report.items || [];
+  // Backend spreads report.metrics into complaint.stats; merge both so older reports still render.
   const stats = complaint.stats || {};
+  const m = { ...(report.metrics || {}), ...stats };
+  const sevStyle = SEVERITY_STYLE[m.severity] || { fg: "#475569", bg: "#f8fafc", border: "#e2e8f0" };
+  // The engine reports a bare stream name when a pile is single-stream; the tile reads better as a verdict.
+  const rawVerdict = (m.segregation_verdict || "MIXED").toUpperCase();
+  const singleStream = STREAM_LABEL[rawVerdict];
+  const verdictText = singleStream ? "SINGLE-STREAM" : rawVerdict;
+  const verdictSub = singleStream ? STREAM_LABEL[rawVerdict] : "source separation";
+  const segregated = rawVerdict === "SEGREGATED" || rawVerdict === "CLEAN";
   const isProcessing = complaint.analysis_status !== "failed" && (complaint.analysis_status === "in_progress" || (!urls.annotated_image && !complaint.report));
 
   const jsonStr = JSON.stringify(report, null, 2);
@@ -880,20 +955,25 @@ window.openForensicDrawerById = function (cid) {
     </div>
 
     <!-- Forensic Summary Stats -->
-    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.65rem; margin-bottom: 1.25rem;">
-      <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 0.6rem; text-align: center;">
-        <div style="font-size: 0.65rem; color: #64748b; font-weight: 700;">TOTAL ITEMS</div>
-        <div style="font-size: 1.25rem; font-weight: 800; color: #0f172a;">${stats.item_count || items.length}</div>
-      </div>
-      <div style="background: ${stats.sup_violations > 0 ? '#fef2f2' : '#f8fafc'}; border: 1px solid ${stats.sup_violations > 0 ? '#fecaca' : '#e2e8f0'}; border-radius: 6px; padding: 0.6rem; text-align: center;">
-        <div style="font-size: 0.65rem; color: ${stats.sup_violations > 0 ? '#dc2626' : '#64748b'}; font-weight: 700;">SUP INFRACTIONS</div>
-        <div style="font-size: 1.25rem; font-weight: 800; color: ${stats.sup_violations > 0 ? '#dc2626' : '#059669'};">${stats.sup_violations || 0}</div>
-      </div>
-      <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 0.6rem; text-align: center;">
-        <div style="font-size: 0.65rem; color: #64748b; font-weight: 700;">SEGREGATION</div>
-        <div style="font-size: 0.95rem; font-weight: 800; color: #0f172a; text-transform: uppercase;">${stats.segregation_verdict || 'MIXED'}</div>
-      </div>
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.6rem; margin-bottom: 0.65rem;">
+      ${metricTile("SEVERITY", (m.severity || (items.length ? 'UNSEVERED' : 'NONE')) + (m.severity_index ? ` ${m.severity_index}` : ''), m.severity_index ? 'index / 100' : 'no metrics yet', sevStyle)}
+      ${metricTile("TOTAL ITEMS", m.item_count || items.length, m.artifact_clusters ? m.artifact_clusters + ' boxed regions' : 'distinct artifacts')}
+      ${metricTile("SUP INFRACTIONS", m.sup_violations || m.sup_infractions || 0, 'banned single-use', (m.sup_violations || m.sup_infractions) > 0 ? { fg: "#dc2626", bg: "#fef2f2", border: "#fecaca" } : undefined)}
+      ${metricTile("EST. LOAD", (m.estimated_weight_kg || 0) + " kg", m.total_pieces ? m.total_pieces + ' pieces' : 'estimated mass', m.estimated_weight_kg > 3 ? { fg: "#c2410c", bg: "#fff7ed", border: "#fed7aa" } : undefined)}
     </div>
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.6rem; margin-bottom: 1.25rem;">
+      ${metricTile("FRAME COVERAGE", (m.frame_coverage_pct !== undefined ? m.frame_coverage_pct : 0) + "%", 'littered area of photo')}
+      ${metricTile("AI CONFIDENCE", Math.round((m.mean_confidence || 0) * 100) + "%", 'mean detection score')}
+      ${metricTile("SEGREGATION", verdictText, verdictSub, segregated ? { fg: "#059669", bg: "#f0fdf4", border: "#bbf7d0" } : { fg: "#b91c1c", bg: "#fef2f2", border: "#fecaca" })}
+    </div>
+    ${m.recommended_action ? `
+      <div style="background: ${sevStyle.bg}; border: 1px solid ${sevStyle.border}; border-left: 4px solid ${sevStyle.fg}; border-radius: 6px; padding: 0.6rem 0.75rem; margin-bottom: 1rem; font-size: 0.76rem; color: #334155; line-height: 1.5;">
+        <i class="fa-solid fa-clipboard-check" style="color: ${sevStyle.fg};"></i>
+        <strong style="color: ${sevStyle.fg};">DISPATCH ACTION:</strong> ${esc(m.recommended_action)}
+      </div>
+    ` : ""}
+
+    ${renderStreamBreakdown(m)}
 
     <!-- Multi-Item Enumeration Table -->
     <div style="border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden;">
@@ -909,6 +989,7 @@ window.openForensicDrawerById = function (cid) {
               <th style="padding: 6px 10px;">Material / Resin</th>
               <th style="padding: 6px 10px;">SUP Violation</th>
               <th style="padding: 6px 10px;">Brand (EPR)</th>
+              <th style="padding: 6px 10px;">Conf.</th>
             </tr>
           </thead>
           <tbody>
@@ -921,13 +1002,14 @@ window.openForensicDrawerById = function (cid) {
                   ${it.sup_violation ? '<i class="fa-solid fa-xmark"></i> YES' : '<i class="fa-solid fa-check"></i> NO'}
                 </td>
                 <td style="padding: 6px 10px; font-weight: 600; color: #047857;">${it.brand || 'Unidentified'}</td>
+                <td style="padding: 6px 10px;"><span style="background: ${it.confidence >= 0.85 ? '#f0fdf4' : '#fffbeb'}; color: ${it.confidence >= 0.85 ? '#059669' : '#b45309'}; padding: 1px 4px; border-radius: 3px; font-size: 10px; font-weight: 700;">${it.confidence ? Math.round(it.confidence * 100) + '%' : 'N/A'}</span></td>
               </tr>
             `).join("") : (complaint.analysis_status === "failed" ? `
-              <tr><td colspan="5" style="padding: 14px; text-align: center; color: #b91c1c; font-weight: 600;">
+              <tr><td colspan="6" style="padding: 14px; text-align: center; color: #b91c1c; font-weight: 600;">
                 <i class="fa-solid fa-triangle-exclamation"></i> Nothing was analysed — see the failure reason above.
               </td></tr>
             ` : `
-              <tr><td colspan="5" style="padding: 14px; text-align: center; color: #059669; font-weight: 600;">
+              <tr><td colspan="6" style="padding: 14px; text-align: center; color: #059669; font-weight: 600;">
                 <i class="fa-solid fa-circle-check"></i> No waste artifacts detected — the analyzed scene appears clean.
               </td></tr>
             `)}
