@@ -17,7 +17,7 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
 
   <!-- Admin Stylesheet (Cache Busted) -->
-  <link rel="stylesheet" href="admin.css?v=3.5" />
+  <link rel="stylesheet" href="admin.css?v=3.6" />
 </head>
 <body>
 
@@ -47,6 +47,15 @@
       </div>
     </div>
   </header>
+
+  <!-- Render Server Wakeup Indicator Banner -->
+  <div id="render-wakeup-banner" class="render-wakeup-banner hidden">
+    <i class="fa-solid fa-cloud-sun fa-bounce" style="color: #f59e0b; font-size: 1.1rem;"></i>
+    <div>
+      <strong>Connecting to Render AI Backend...</strong>
+      <span style="display: block; font-size: 0.76rem; color: #b45309; margin-top: 1px;">Render free tier instance is waking up (~30s cold start). Auto-retrying connection...</span>
+    </div>
+  </div>
 
   <!-- Sub-Header Tab Switcher -->
   <div class="tab-bar-container">
@@ -192,7 +201,12 @@
           <span class="drawer-tag" id="drawer-complaint-id">CMP-20260902</span>
           <h3 id="drawer-title">Forensic Waste Inspection</h3>
         </div>
-        <button type="button" class="drawer-close" id="btn-drawer-close">&times;</button>
+        <div class="drawer-header-actions">
+          <button type="button" class="btn-drawer-delete" id="btn-drawer-delete" title="Permanently delete this report">
+            <i class="fa-solid fa-trash-can"></i> Delete Report
+          </button>
+          <button type="button" class="drawer-close" id="btn-drawer-close">&times;</button>
+        </div>
       </div>
 
       <div class="drawer-body" id="drawer-content">
@@ -224,6 +238,6 @@
   <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <!-- Admin Application Logic (Cache Busted) -->
-  <script src="admin.js?v=3.5"></script>
+  <script src="admin.js?v=3.9"></script>
 </body>
 </html>

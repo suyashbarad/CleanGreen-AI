@@ -1,0 +1,13 @@
+item_id,item_name,count,stream,material,resin_code,sup_violation,brand,condition,bounding_box
+ITEM-001,Clear PET Plastic Beverage Bottle,3,DRY_RECYCLABLE,Polyethylene Terephthalate,1 (PETE),True,Bottled Water / Soft Drink,"Isolated artifact cluster (28 sectors, 7.7% of frame)","[547, 533, 800, 779]"
+ITEM-002,Clear PET Plastic Beverage Bottle,3,DRY_RECYCLABLE,Polyethylene Terephthalate,1 (PETE),True,Bottled Water / Soft Drink,"Isolated artifact cluster (28 sectors, 7.7% of frame)","[277, 270, 531, 517]"
+ITEM-003,Discarded Cardboard / Paper Packaging,3,DRY_RECYCLABLE,Corrugated Paperboard,PAP 20,False,Shipping / Retail Packaging,"Isolated artifact cluster (28 sectors, 7.7% of frame)","[547, 270, 800, 517]"
+ITEM-004,Clear PET Plastic Beverage Bottle,3,DRY_RECYCLABLE,Polyethylene Terephthalate,1 (PETE),True,Bottled Water / Soft Drink,"Isolated artifact cluster (26 sectors, 7.1% of frame)","[277, 533, 531, 779]"
+ITEM-005,Discarded Cardboard / Paper Packaging,3,DRY_RECYCLABLE,Corrugated Paperboard,PAP 20,False,Shipping / Retail Packaging,"Isolated artifact cluster (25 sectors, 6.9% of frame)","[547, 8, 800, 254]"
+ITEM-006,Discarded Cardboard / Paper Packaging,3,DRY_RECYCLABLE,Corrugated Paperboard,PAP 20,False,Shipping / Retail Packaging,"Isolated artifact cluster (23 sectors, 6.3% of frame)","[8, 533, 261, 779]"
+ITEM-007,Aluminium Beverage Can,3,DRY_RECYCLABLE,Aluminium Alloy,ALU 41,False,Soft Drink Can,"Isolated artifact cluster (24 sectors, 6.6% of frame)","[277, 8, 531, 254]"
+ITEM-008,Clear PET Plastic Beverage Bottle,2,DRY_RECYCLABLE,Polyethylene Terephthalate,1 (PETE),True,Bottled Water / Soft Drink,"Isolated artifact cluster (19 sectors, 5.2% of frame)","[277, 795, 531, 967]"
+ITEM-009,Crushed Mixed-Plastic Wrapper,2,GENERIC_RESIDUAL,Assorted Polymers,7 (OTHER),True,Unidentified Brand,"Isolated artifact cluster (18 sectors, 4.9% of frame)","[8, 270, 261, 517]"
+ITEM-010,Discarded Cardboard / Paper Packaging,2,DRY_RECYCLABLE,Corrugated Paperboard,PAP 20,False,Shipping / Retail Packaging,"Isolated artifact cluster (13 sectors, 3.6% of frame)","[816, 8, 935, 254]"
+ITEM-011,Clear PET Plastic Beverage Bottle,2,DRY_RECYCLABLE,Polyethylene Terephthalate,1 (PETE),True,Bottled Water / Soft Drink,"Isolated artifact cluster (14 sectors, 3.8% of frame)","[816, 533, 935, 779]"
+ITEM-012,Clear PET Plastic Beverage Bottle,2,DRY_RECYCLABLE,Polyethylene Terephthalate,1 (PETE),True,Bottled Water / Soft Drink,"Isolated artifact cluster (14 sectors, 3.8% of frame)","[816, 270, 935, 517]"

@@ -3,6 +3,12 @@
 // Team Pixel Minds
 // ==========================================================================
 
+function esc(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  })[ch]);
+}
+
 const STATE = {
   activeTab: "tab-map",
   osmBins: [],
@@ -59,6 +65,7 @@ const btnRefreshComplaints = document.getElementById("btn-refresh-complaints");
 // Forensic Drawer Elements
 const forensicDrawer = document.getElementById("forensic-drawer");
 const btnDrawerClose = document.getElementById("btn-drawer-close");
+const btnDrawerDelete = document.getElementById("btn-drawer-delete");
 const drawerComplaintId = document.getElementById("drawer-complaint-id");
 const drawerTitle = document.getElementById("drawer-title");
 const drawerContent = document.getElementById("drawer-content");
@@ -127,31 +134,119 @@ function initAdminMap() {
   STATE.gapLinesLayer = L.featureGroup().addTo(STATE.map);
 }
 
+const RENDER_BACKEND_URL = "https://cleangreen-ai-backend.onrender.com";
+
+function toggleRenderWakeupBanner(show) {
+  const banner = document.getElementById("render-wakeup-banner");
+  if (banner) {
+    if (show) {
+      banner.classList.remove("hidden");
+    } else {
+      banner.classList.add("hidden");
+    }
+  }
+}
+
+async function fetchWithRenderWakeup(endpoint, options = {}) {
+  // 1. Try relative URL first (Vercel rewrite / local)
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 6000);
+    const res = await fetch(endpoint, { ...options, signal: controller.signal });
+    clearTimeout(timer);
+    if (res.ok) {
+      toggleRenderWakeupBanner(false);
+      return res;
+    }
+  } catch (err) {
+    // Relative fetch timed out or failed
+  }
+
+  if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+    throw new Error("Local server offline");
+  }
+
+  // 2. Direct fetch to Render URL (bypasses Vercel 10s proxy timeout during Render cold start)
+  toggleRenderWakeupBanner(true);
+  const directUrl = RENDER_BACKEND_URL + endpoint;
+
+  try {
+    const directRes = await fetch(directUrl, options);
+    if (directRes.ok) {
+      toggleRenderWakeupBanner(false);
+      return directRes;
+    }
+  } catch (e) {
+    console.log("[RENDER COLD START] Waking up Render backend instance...");
+  }
+
+  throw new Error("Render cold start in progress");
+}
+
 // ==========================================================================
 // 3. Load OSM Bins & Complaints Data
 // ==========================================================================
 async function loadData(isSilent = false) {
   try {
     if (!isSilent) {
-      // 1. Fetch OSM Bins on initial load
-      const binsRes = await fetch("/api/osm/bins");
-      if (binsRes.ok) {
-        const data = await binsRes.json();
-        STATE.osmBins = data.bins || [];
-        statOsmBins.textContent = STATE.osmBins.length;
-        stripBinsVal.textContent = STATE.osmBins.length;
+      // 1. Fetch OSM Bins (Try API first, fallback to static /pune_osm_bins.json)
+      try {
+        const binsRes = await fetchWithRenderWakeup("/api/osm/bins");
+        if (binsRes && binsRes.ok) {
+          const data = await binsRes.json();
+          STATE.osmBins = data.bins || [];
+        } else {
+          throw new Error("Backend API non-200");
+        }
+      } catch (err) {
+        try {
+          const fbRes = await fetch("/pune_osm_bins.json");
+          if (fbRes.ok) {
+            const fbData = await fbRes.json();
+            STATE.osmBins = Array.isArray(fbData) ? fbData : (fbData.bins || []);
+          }
+        } catch (e) {
+          console.warn("Could not load fallback bins:", e);
+        }
       }
+      statOsmBins.textContent = STATE.osmBins.length;
+      stripBinsVal.textContent = STATE.osmBins.length;
     }
 
-    // 2. Fetch Complaints
-    const compRes = await fetch("/api/complaints");
-    if (compRes.ok) {
-      const data = await compRes.json();
-      STATE.complaints = data.complaints || [];
-      statComplaints.textContent = STATE.complaints.length;
-      badgeComplaintsCount.textContent = STATE.complaints.length;
-      stripComplaintsVal.textContent = STATE.complaints.length;
+    // 2. Fetch Complaints (Try backend API first, merge with localStorage and sample data)
+    let serverComplaints = [];
+    try {
+      const compRes = await fetchWithRenderWakeup("/api/complaints");
+      if (compRes && compRes.ok) {
+        const data = await compRes.json();
+        serverComplaints = data.complaints || [];
+      }
+    } catch (e) {
+      console.log("[STANDALONE] Operating with local & cached complaints while Render wakes up");
     }
+
+    const localComplaints = getLocalComplaints();
+
+    const complaintMap = new Map();
+    serverComplaints.forEach(c => complaintMap.set(c.complaint_id, c));
+    localComplaints.forEach(c => {
+      if (!complaintMap.has(c.complaint_id)) {
+        complaintMap.set(c.complaint_id, c);
+      } else {
+        const existing = complaintMap.get(c.complaint_id);
+        if (c.status && c.status !== "Pending") existing.status = c.status;
+      }
+    });
+
+    let mergedComplaints = Array.from(complaintMap.values());
+    if (mergedComplaints.length === 0) {
+      mergedComplaints = getSamplePuneComplaints();
+    }
+
+    STATE.complaints = mergedComplaints;
+    statComplaints.textContent = STATE.complaints.length;
+    badgeComplaintsCount.textContent = STATE.complaints.length;
+    stripComplaintsVal.textContent = STATE.complaints.length;
 
     if (!isSilent) {
       renderMapData();
@@ -182,7 +277,7 @@ function updateComplaintPinsOnly() {
     const isBinGap = minDistanceKm > 0.6;
     if (isBinGap) criticalGapCount++;
 
-    const isProcessing = c.analysis_status === "in_progress" || (!c.urls?.annotated_image && !c.report);
+    const isProcessing = c.analysis_status !== "failed" && (c.analysis_status === "in_progress" || (!c.urls?.annotated_image && !c.report));
     const pinClass = isBinGap ? "custom-gap-pin" : "custom-complaint-pin";
     const pinIconSymbol = isProcessing ? "fa-spinner fa-spin" : (isBinGap ? "fa-circle-exclamation" : "fa-triangle-exclamation");
 
@@ -593,8 +688,8 @@ function renderComplaintsLedger(list) {
   complaintsContainer.innerHTML = list.map((c) => {
     const urls = c.urls || {};
     const stats = c.stats || {};
-    const isProcessing = c.analysis_status === "in_progress" || (!urls.annotated_image && !c.report);
     const isFailed = c.analysis_status === "failed";
+    const isProcessing = !isFailed && (c.analysis_status === "in_progress" || (!urls.annotated_image && !c.report));
     const imgUrl = urls.annotated_image || urls.original_image || "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100'><rect fill='%23e2e8f0' width='100' height='100'/></svg>";
     const statusClass = isProcessing ? "status-processing" : (c.status === "Resolved" ? "status-resolved" : (c.status === "Truck Dispatched" ? "status-dispatched" : "status-pending"));
 
@@ -602,6 +697,9 @@ function renderComplaintsLedger(list) {
       <div class="complaint-card ${isProcessing ? 'processing' : ''}" onclick="openForensicDrawerById('${c.complaint_id}')">
         <div style="position: relative;">
           <img src="${imgUrl}" class="complaint-card-image" alt="Waste Image" />
+          <button type="button" class="btn-card-delete" title="Delete report" onclick="event.stopPropagation(); deleteComplaintById('${c.complaint_id}')">
+            <i class="fa-solid fa-trash-can"></i>
+          </button>
           ${isProcessing ? `
             <span class="complaint-badge-overlay" style="background: rgba(2,132,199,0.92);">
               <i class="fa-solid fa-spinner fa-spin"></i> AI SCANNING
@@ -652,7 +750,7 @@ function renderComplaintsLedger(list) {
                   </button>
                 </div>
                 <div class="card-progress-subtext" style="color: #b91c1c;">
-                  <span>Click Retry to run with fast model</span>
+                  <span>${esc(c.analysis_error || "Click Retry to run with fast model")}</span>
                 </div>
               </div>
             ` : `
@@ -680,10 +778,15 @@ window.openForensicDrawerById = function (cid) {
   const report = complaint.report || {};
   const items = report.items || [];
   const stats = complaint.stats || {};
-  const isProcessing = complaint.analysis_status === "in_progress" || (!urls.annotated_image && !complaint.report);
+  const isProcessing = complaint.analysis_status !== "failed" && (complaint.analysis_status === "in_progress" || (!urls.annotated_image && !complaint.report));
 
-  linkDownloadJson.href = urls.json_report || "#";
-  linkDownloadCsv.href = urls.csv_report || "#";
+  const jsonStr = JSON.stringify(report, null, 2);
+  linkDownloadJson.href = urls.json_report || ("data:application/json;charset=utf-8," + encodeURIComponent(jsonStr));
+  linkDownloadJson.setAttribute("download", `${complaint.complaint_id}_report.json`);
+
+  const csvStr = generateCsvStringFromItems(items);
+  linkDownloadCsv.href = urls.csv_report || ("data:text/csv;charset=utf-8," + encodeURIComponent(csvStr));
+  linkDownloadCsv.setAttribute("download", `${complaint.complaint_id}_report.csv`);
 
   if (isProcessing) {
     drawerContent.innerHTML = `
@@ -749,7 +852,17 @@ window.openForensicDrawerById = function (cid) {
     return;
   }
 
+  const failedBanner = complaint.analysis_status === "failed" ? `
+    <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 0.7rem 0.85rem; margin-bottom: 1rem; color: #b91c1c; font-size: 0.8rem; line-height: 1.5;">
+      <i class="fa-solid fa-triangle-exclamation"></i>
+      <strong>Analysis failed — no waste was actually checked in this photo.</strong><br />
+      ${esc(complaint.analysis_error || "The backend could not run the vision model.")}
+    </div>
+  ` : "";
+
   drawerContent.innerHTML = `
+    ${failedBanner}
+
     <!-- Image Comparison Section -->
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.85rem; margin-bottom: 1.25rem;">
       <div>
@@ -809,9 +922,15 @@ window.openForensicDrawerById = function (cid) {
                 </td>
                 <td style="padding: 6px 10px; font-weight: 600; color: #047857;">${it.brand || 'Unidentified'}</td>
               </tr>
-            `).join("") : `
-              <tr><td colspan="5" style="padding: 12px; text-align: center; color: #94a3b8;">Detailed item enumeration available in report.json</td></tr>
-            `}
+            `).join("") : (complaint.analysis_status === "failed" ? `
+              <tr><td colspan="5" style="padding: 14px; text-align: center; color: #b91c1c; font-weight: 600;">
+                <i class="fa-solid fa-triangle-exclamation"></i> Nothing was analysed — see the failure reason above.
+              </td></tr>
+            ` : `
+              <tr><td colspan="5" style="padding: 14px; text-align: center; color: #059669; font-weight: 600;">
+                <i class="fa-solid fa-circle-check"></i> No waste artifacts detected — the analyzed scene appears clean.
+              </td></tr>
+            `)}
           </tbody>
         </table>
       </div>
@@ -858,23 +977,29 @@ function setupEventListeners() {
     forensicDrawer.classList.add("hidden");
   });
 
+  btnDrawerDelete.addEventListener("click", () => {
+    if (!STATE.selectedComplaint) return;
+    deleteComplaintById(STATE.selectedComplaint.complaint_id);
+  });
+
   btnUpdateStatus.addEventListener("click", async () => {
     if (!STATE.selectedComplaint) return;
     const newStatus = drawerStatusSelect.value;
+    STATE.selectedComplaint.status = newStatus;
+
+    updateLocalComplaintStatus(STATE.selectedComplaint.complaint_id, newStatus);
+    renderComplaintsLedger(STATE.complaints);
+
     try {
-      const res = await fetch(`/api/complaints/${STATE.selectedComplaint.complaint_id}/status`, {
+      await fetch(`/api/complaints/${STATE.selectedComplaint.complaint_id}/status`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus })
       });
-      if (res.ok) {
-        STATE.selectedComplaint.status = newStatus;
-        renderComplaintsLedger(STATE.complaints);
-        alert(`Status updated to: ${newStatus}`);
-      }
     } catch (err) {
-      alert("Error updating status: " + err.message);
+      console.log("[OFFLINE] Updated complaint status locally:", err);
     }
+    alert(`Status updated to: ${newStatus}`);
   });
 
   // Live Auto-Poll every 4 seconds to reflect background Vision AI completions seamlessly
@@ -882,6 +1007,84 @@ function setupEventListeners() {
     loadData(true);
   }, 4000);
 }
+
+function updateLocalComplaintStatus(cid, newStatus) {
+  try {
+    const list = JSON.parse(localStorage.getItem("swachhComplaintsLedger") || "[]");
+    list.forEach(c => {
+      if (c.complaint_id === cid) {
+        c.status = newStatus;
+      }
+    });
+    localStorage.setItem("swachhComplaintsLedger", JSON.stringify(list));
+  } catch (err) {
+    console.warn("Could not update local complaint status:", err);
+  }
+}
+
+function generateCsvStringFromItems(items) {
+  if (!items || items.length === 0) return "item_id,item_name,count,stream,material,resin_code,sup_violation,brand\n";
+  const header = "item_id,item_name,count,stream,material,resin_code,sup_violation,brand\n";
+  const rows = items.map(it => [
+    it.item_id || "",
+    `"${(it.item_name || "").replace(/"/g, '""')}"`,
+    it.count || 1,
+    it.stream || "GENERIC",
+    `"${(it.material || "").replace(/"/g, '""')}"`,
+    it.resin_code || "",
+    it.sup_violation ? "YES" : "NO",
+    `"${(it.brand || "").replace(/"/g, '""')}"`
+  ].join(",")).join("\n");
+  return header + rows;
+}
+
+// Permanently delete a complaint + its analysis reports (server folder, ledger, localStorage)
+window.deleteComplaintById = async function (cid) {
+  const complaint = STATE.complaints.find(c => c.complaint_id === cid);
+  if (!complaint) return;
+
+  const ok = confirm(`Permanently delete report ${cid}?\n\nThe photo, annotated image, report.json and report.csv will be removed.`);
+  if (!ok) return;
+
+  let serverDeleted = false;
+  try {
+    const res = await fetchWithRenderWakeup(`/api/complaints/${encodeURIComponent(cid)}/delete`, { method: "POST" });
+    const data = await res.json();
+    serverDeleted = !!(res.ok && data.success);
+  } catch (err) {
+    console.log("[DELETE] Backend delete request failed:", err);
+  }
+
+  // Remove from localStorage ledger (covers offline/sample complaints too)
+  try {
+    const list = JSON.parse(localStorage.getItem("swachhComplaintsLedger") || "[]");
+    const trimmed = list.filter(c => c.complaint_id !== cid);
+    localStorage.setItem("swachhComplaintsLedger", JSON.stringify(trimmed));
+  } catch (err) {
+    console.warn("Could not purge local complaint:", err);
+  }
+
+  STATE.complaints = STATE.complaints.filter(c => c.complaint_id !== cid);
+  statComplaints.textContent = STATE.complaints.length;
+  badgeComplaintsCount.textContent = STATE.complaints.length;
+  stripComplaintsVal.textContent = STATE.complaints.length;
+
+  if (STATE.selectedComplaint && STATE.selectedComplaint.complaint_id === cid) {
+    STATE.selectedComplaint = null;
+    forensicDrawer.classList.add("hidden");
+  }
+
+  renderComplaintsLedger(STATE.complaints);
+  if (STATE.complaintLayer) {
+    updateComplaintPinsOnly();
+  }
+
+  if (serverDeleted) {
+    alert(`Report ${cid} deleted permanently.`);
+  } else {
+    alert(`Report ${cid} removed from this dashboard (server copy was not found — it may have been stored locally or already deleted).`);
+  }
+};
 
 // 1-Click AI Analysis Retry Handler
 window.retryComplaintAnalysis = async function (cid) {
@@ -899,7 +1102,90 @@ window.retryComplaintAnalysis = async function (cid) {
       alert(`Could not start retry: ${data.error || "Unknown error"}`);
     }
   } catch (err) {
-    alert(`Error retrying AI analysis: ${err.message}`);
+    console.log("[OFFLINE] Running browser retry handler:", err);
+    const complaint = STATE.complaints.find(c => c.complaint_id === cid);
+    if (complaint) {
+      complaint.analysis_status = "failed";
+      complaint.report = {
+        items: [],
+        summary: "Backend is unreachable, so the AI analysis could not run in the browser. Retry once the server is online."
+      };
+      openForensicDrawerById(cid);
+    }
   }
 };
+
+function getLocalComplaints() {
+  try {
+    return JSON.parse(localStorage.getItem("swachhComplaintsLedger") || "[]");
+  } catch (e) {
+    return [];
+  }
+}
+
+function getSamplePuneComplaints() {
+  return [
+    {
+      complaint_id: "CMP-20260913_154835-6902",
+      timestamp: "2026-09-13T10:18:35Z",
+      local_time: "2026-09-13 15:48:35",
+      coordinates: { latitude: 18.511125, longitude: 73.815742 },
+      address: "Rambaug Colony Road, Kothrud, Erandwane, Pune, Maharashtra 411001",
+      notes: "Heavy litter blackspot near street corner.",
+      status: "Pending",
+      analysis_status: "completed",
+      urls: {
+        original_image: "https://images.unsplash.com/photo-1530587191325-3db32d826c18?w=600&q=80",
+        annotated_image: "https://images.unsplash.com/photo-1530587191325-3db32d826c18?w=600&q=80",
+        json_report: null,
+        csv_report: null
+      },
+      stats: {
+        item_count: 5,
+        sup_violations: 3,
+        hazard_flag: false,
+        segregation_verdict: "UNSEGREGATED"
+      },
+      report: {
+        items: [
+          { item_id: "ITEM-001", item_name: "PET Plastic Beverage Bottle", count: 2, stream: "DRY_RECYCLABLE", material: "Polyethylene Terephthalate", resin_code: "1 (PETE)", sup_violation: true, brand: "Bisleri", condition: "Discarded", bounding_box: [120, 80, 480, 380] },
+          { item_id: "ITEM-002", item_name: "Single-Use Polythene Carry Bag", count: 3, stream: "DRY_RECYCLABLE", material: "Low-Density Polyethylene", resin_code: "4 (LDPE)", sup_violation: true, brand: "Unbranded Packaging", condition: "Crushed", bounding_box: [350, 420, 820, 920] },
+          { item_id: "ITEM-003", item_name: "Multi-layer Food Wrapper", count: 4, stream: "GENERIC_RESIDUAL", material: "Metallized Plastic Laminate", resin_code: "7 (OTHER)", sup_violation: true, brand: "Lays / Parle", condition: "Wrapper", bounding_box: [520, 150, 890, 560] },
+          { item_id: "ITEM-004", item_name: "Discarded Cardboard Box", count: 1, stream: "DRY_RECYCLABLE", material: "Corrugated Paperboard", resin_code: "PAP 20", sup_violation: false, brand: "Shipping Box", condition: "Flattened", bounding_box: [180, 550, 550, 950] },
+          { item_id: "ITEM-005", item_name: "Organic Kitchen Residue", count: 1, stream: "WET", material: "Biodegradable Waste", resin_code: "N/A", sup_violation: false, brand: "Organic", condition: "Decomposing", bounding_box: [620, 60, 940, 450] }
+        ],
+        summary: "Forensic waste audit complete. Identified high density of unsegregated plastics."
+      }
+    },
+    {
+      complaint_id: "CMP-20260914_091522-A1B2",
+      timestamp: "2026-09-14T09:15:22Z",
+      local_time: "2026-09-14 14:45:22",
+      coordinates: { latitude: 18.5189, longitude: 73.8142 },
+      address: "MIT World Peace University Gate 3, Paud Road, Kothrud, Pune",
+      notes: "Overflowing bin on pavement.",
+      status: "Truck Dispatched",
+      analysis_status: "completed",
+      urls: {
+        original_image: "https://images.unsplash.com/photo-1611284446314-60a58ac0deb9?w=600&q=80",
+        annotated_image: "https://images.unsplash.com/photo-1611284446314-60a58ac0deb9?w=600&q=80",
+        json_report: null,
+        csv_report: null
+      },
+      stats: {
+        item_count: 4,
+        sup_violations: 2,
+        hazard_flag: false,
+        segregation_verdict: "MIXED"
+      },
+      report: {
+        items: [
+          { item_id: "ITEM-001", item_name: "Styrofoam Meal Container", count: 2, stream: "SANITARY", material: "Expanded Polystyrene", resin_code: "6 (PS)", sup_violation: true, brand: "Food Box", condition: "Used", bounding_box: [100, 100, 450, 450] },
+          { item_id: "ITEM-002", item_name: "Plastic Drinking Straws", count: 5, stream: "DRY_RECYCLABLE", material: "Polypropylene", resin_code: "5 (PP)", sup_violation: true, brand: "Generic", condition: "Discarded", bounding_box: [500, 200, 750, 600] }
+        ],
+        summary: "Sanitation dispatch underway for MIT-WPU Gate 3 corridor."
+      }
+    }
+  ];
+}
 

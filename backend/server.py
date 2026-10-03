@@ -13,9 +13,11 @@ Provides:
 import http.server
 import socketserver
 import os
+import shutil
 import sys
 import json
 import base64
+import hashlib
 import urllib.parse
 import webbrowser
 import threading
@@ -33,6 +35,34 @@ from analyzer import save_initial_complaint, run_background_ai_analysis
 
 PORT = 8000
 
+# Maps sha256(photo bytes) -> complaint_id so the same photo can never create two reports.
+_SUBMITTED_IMAGE_HASHES = {}
+_HASH_LOCK = threading.Lock()
+
+
+def register_existing_complaint_hashes():
+    """Rebuilds the dedupe registry from disk so a server restart cannot re-report old photos."""
+    if not COMPLAINTS_DIR.exists():
+        return
+    count = 0
+    for folder in COMPLAINTS_DIR.iterdir():
+        meta_file = folder / "metadata.json"
+        if not meta_file.exists():
+            continue
+        try:
+            with open(meta_file, "r", encoding="utf-8") as f:
+                meta = json.load(f)
+            image_hash = meta.get("image_hash")
+            complaint_id = meta.get("complaint_id")
+            if image_hash and complaint_id:
+                _SUBMITTED_IMAGE_HASHES[image_hash] = complaint_id
+                count += 1
+        except Exception as err:
+            print(f"[BACKEND] Could not read {meta_file}: {err}")
+    if count:
+        print(f"[BACKEND] Dedupe registry loaded {count} previously reported photo(s).")
+
+
 
 class CleanGreenRequestHandler(http.server.SimpleHTTPRequestHandler):
 
@@ -41,7 +71,7 @@ class CleanGreenRequestHandler(http.server.SimpleHTTPRequestHandler):
 
     def end_headers(self):
         self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
         self.send_header('Pragma', 'no-cache')
@@ -55,6 +85,13 @@ class CleanGreenRequestHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         url_parsed = urllib.parse.urlparse(self.path)
         path = url_parsed.path
+        # 0. Health / Ping endpoint (Keep-Alive)
+        if path in ("/api/ping", "/api/health"):
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok", "message": "CleanGreen AI Backend active"}).encode('utf-8'))
+            return
 
         # 1. Admin redirect
         if path in ("/admin", "/admin/"):
@@ -131,7 +168,8 @@ class CleanGreenRequestHandler(http.server.SimpleHTTPRequestHandler):
                                     except Exception:
                                         pass
                                 else:
-                                    item["analysis_status"] = "in_progress"
+                                    if item.get("analysis_status") != "failed":
+                                        item["analysis_status"] = "in_progress"
                                     item["stats"] = {
                                         "item_count": 0,
                                         "sup_violations": 0,
@@ -212,6 +250,21 @@ class CleanGreenRequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps({"error": str(e)}).encode('utf-8'))
                 return
 
+        # 1.4. Delete Complaint (and its analysis reports) — POST variant
+        if path.startswith("/api/complaints/") and path.endswith("/delete"):
+            parts = path.strip("/").split("/")
+            complaint_id = parts[2]
+            deleted = self._delete_complaint_folder(complaint_id)
+
+            self.send_response(200 if deleted else 404)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "success": deleted,
+                "deleted": complaint_id if deleted else None
+            }).encode('utf-8'))
+            return
+
         # 1.5. Retry AI Analysis on Complaint
         if path.startswith("/api/complaints/") and path.endswith("/retry"):
             parts = path.strip("/").split("/")
@@ -271,17 +324,39 @@ class CleanGreenRequestHandler(http.server.SimpleHTTPRequestHandler):
 
                 if 'application/json' in content_type:
                     data = json.loads(post_body.decode('utf-8'))
-                    image_base64 = data.get('image_base64', '')
+                    image_base64 = data.get('image_base64', '').strip()
                     if ',' in image_base64:
                         image_base64 = image_base64.split(',', 1)[1]
+                    missing_padding = len(image_base64) % 4
+                    if missing_padding:
+                        image_base64 += '=' * (4 - missing_padding)
                     image_bytes = base64.b64decode(image_base64)
                     filename = data.get('filename', 'waste_photo.jpg')
                     lat = float(data.get('latitude', 18.5178))
                     lng = float(data.get('longitude', 73.8151))
                     address = data.get('address', 'MIT-WPU Kothrud, Pune')
                     notes = data.get('notes', '')
+                    client_complaint_id = data.get('client_complaint_id') or None
                 else:
                     self.send_error(400, "Content-Type must be application/json")
+                    return
+
+                image_hash = hashlib.sha256(image_bytes).hexdigest()
+
+                # 0. Refuse to register the exact same photo twice (client retry / double submit)
+                with _HASH_LOCK:
+                    existing_id = _SUBMITTED_IMAGE_HASHES.get(image_hash)
+
+                if existing_id:
+                    print(f"[BACKEND] Duplicate photo submission ignored for {existing_id}!")
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({
+                        "status": "duplicate",
+                        "complaint_id": existing_id,
+                        "message": "This photo was already reported."
+                    }, indent=2).encode('utf-8'))
                     return
 
                 # 1. Instantly save complaint folder and photo in < 50ms!
@@ -292,8 +367,13 @@ class CleanGreenRequestHandler(http.server.SimpleHTTPRequestHandler):
                     lat=lat,
                     lng=lng,
                     address=address,
-                    notes=notes
+                    notes=notes,
+                    client_complaint_id=client_complaint_id,
+                    image_hash=image_hash
                 )
+
+                with _HASH_LOCK:
+                    _SUBMITTED_IMAGE_HASHES[image_hash] = complaint_id
 
                 print(f"[BACKEND] Complaint {complaint_id} saved instantly in {folder_path.name}!")
 
@@ -332,13 +412,87 @@ class CleanGreenRequestHandler(http.server.SimpleHTTPRequestHandler):
 
         self.send_error(404, "Endpoint not found")
 
+    def do_DELETE(self):
+        url_parsed = urllib.parse.urlparse(self.path)
+        path = url_parsed.path
+
+        # DELETE /api/complaints/<complaint_id>
+        if path.startswith("/api/complaints/"):
+            parts = path.strip("/").split("/")
+            if len(parts) == 3:
+                complaint_id = parts[2]
+                deleted = self._delete_complaint_folder(complaint_id)
+
+                self.send_response(200 if deleted else 404)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "success": deleted,
+                    "deleted": complaint_id if deleted else None
+                }).encode('utf-8'))
+                return
+
+        self.send_error(404, "Endpoint not found")
+
+    @staticmethod
+    def _delete_complaint_folder(complaint_id: str) -> bool:
+        """Finds the complaint folder by ID and permanently removes it with all reports."""
+        if not complaint_id or any(ch in complaint_id for ch in ("/", "\\", "..")):
+            return False
+        if not COMPLAINTS_DIR.exists():
+            return False
+        for folder in COMPLAINTS_DIR.iterdir():
+            if not folder.is_dir():
+                continue
+            meta_file = folder / "metadata.json"
+            if meta_file.exists():
+                try:
+                    with open(meta_file, "r", encoding="utf-8") as f:
+                        meta = json.load(f)
+                    if meta.get("complaint_id") == complaint_id:
+                        image_hash = meta.get("image_hash")
+                        shutil.rmtree(folder)
+                        if image_hash:
+                            with _HASH_LOCK:
+                                _SUBMITTED_IMAGE_HASHES.pop(image_hash, None)
+                        print(f"[BACKEND] Complaint {complaint_id} deleted with folder {folder.name}")
+                        return True
+                except Exception as err:
+                    print(f"[BACKEND] Error deleting complaint {complaint_id}: {err}")
+        return False
+
 
 class ThreadedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
 
+def _ensure_image_libraries():
+    """Vision analysis needs Pillow. If this interpreter lacks it but the project .venv has it,
+    relaunch under the venv so `python3 server.py` works regardless of which Python is used."""
+    try:
+        import PIL  # noqa: F401
+        return
+    except ImportError:
+        pass
+
+    venv_python = BASE_DIR / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    already_in_venv = sys.prefix != sys.base_prefix
+
+    if not venv_python.exists() or already_in_venv:
+        print("!! WARNING: Pillow is NOT installed in this Python interpreter.")
+        print("!! Waste photos cannot be analysed until it is available.")
+        print("!! Fix:  ./.venv/bin/python server.py   or   python3 -m pip install -r requirements.txt")
+        return
+
+    script = BASE_DIR / "server.py"
+    print(f"[SETUP] This Python has no Pillow - restarting under {venv_python}", flush=True)
+    os.execv(str(venv_python), [str(venv_python), str(script)] + sys.argv[1:])
+
+
 def run():
+    _ensure_image_libraries()
+    register_existing_complaint_hashes()
     server_address = ('', PORT)
     httpd = ThreadedHTTPServer(server_address, CleanGreenRequestHandler)
     url = f"http://localhost:{PORT}"

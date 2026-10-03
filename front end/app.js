@@ -353,6 +353,35 @@ function setupControls() {
     const randCode = Math.random().toString(16).substring(2, 6).toUpperCase();
     const instantId = "CMP-" + tsStr + "-" + randCode;
 
+    // Local receipt stays honest: the real analysis comes back from the server under this same ID.
+    const localComplaintObj = {
+      complaint_id: instantId,
+      timestamp: now.toISOString(),
+      local_time: now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, '0') + "-" + String(now.getDate()).padStart(2, '0') + " " + String(now.getHours()).padStart(2, '0') + ":" + String(now.getMinutes()).padStart(2, '0') + ":" + String(now.getSeconds()).padStart(2, '0'),
+      coordinates: { latitude: uploadLat, longitude: uploadLng },
+      address: uploadAddress,
+      notes: notes,
+      status: "Pending",
+      analysis_status: "in_progress",
+      original_filename: uploadFileName,
+      image_file: uploadFileName,
+      urls: {
+        original_image: uploadPhotoBase64,
+        annotated_image: null,
+        json_report: null,
+        csv_report: null
+      },
+      stats: {
+        item_count: 0,
+        sup_violations: 0,
+        hazard_flag: false,
+        segregation_verdict: null
+      },
+      report: null
+    };
+
+    saveComplaintToLocalStorage(localComplaintObj);
+
     // Award +50 Green Credits instantly!
     const earnedPts = REWARDS_CONFIG.CREDITS_PER_UPLOAD;
     const newBalance = addGreenCredits(earnedPts);
@@ -367,26 +396,63 @@ function setupControls() {
     // 2. Reset form for next report
     resetCitizenForm();
 
-    // 3. Fire-and-forget upload to server in background
+    // 3. Fire-and-forget upload to server in background (tries relative first, then direct Render URL)
+    const payload = JSON.stringify({
+      image_base64: uploadPhotoBase64,
+      filename: uploadFileName,
+      latitude: uploadLat,
+      longitude: uploadLng,
+      address: uploadAddress,
+      notes: notes,
+      client_complaint_id: instantId
+    });
+
     fetch("/api/submit-complaint", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        image_base64: uploadPhotoBase64,
-        filename: uploadFileName,
-        latitude: uploadLat,
-        longitude: uploadLng,
-        address: uploadAddress,
-        notes: notes
-      })
+      body: payload
     }).then(function(res) {
       if (res.ok) return res.json();
+      throw new Error("Relative fetch failed");
+    }).catch(function() {
+      if (window.location.hostname.includes("vercel.app")) {
+        return fetch("https://cleangreen-ai-backend.onrender.com/api/submit-complaint", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: payload
+        }).then(function(res) { if (res.ok) return res.json(); });
+      }
     }).then(function(data) {
-      if (data) console.log("[BACKGROUND] Complaint saved:", data.folder_name);
+      if (!data || !data.complaint_id) return;
+      if (data.complaint_id !== instantId) renameLocalComplaint(instantId, data.complaint_id);
+      console.log("[BACKGROUND] Complaint saved to backend:", data.status, data.complaint_id);
     }).catch(function(err) {
-      console.warn("[BACKGROUND] Upload error:", err);
+      console.warn("[STANDALONE] Backend waking up or offline. Complaint saved in local storage:", err);
     });
   });
+
+function saveComplaintToLocalStorage(c) {
+  try {
+    const existing = JSON.parse(localStorage.getItem("swachhComplaintsLedger") || "[]");
+    existing.unshift(c);
+    const trimmed = existing.slice(0, 35);
+    localStorage.setItem("swachhComplaintsLedger", JSON.stringify(trimmed));
+  } catch (err) {
+    console.warn("Could not save complaint to localStorage:", err);
+  }
+}
+
+function renameLocalComplaint(oldId, newId) {
+  try {
+    const list = JSON.parse(localStorage.getItem("swachhComplaintsLedger") || "[]");
+    const row = list.find(function(c) { return c.complaint_id === oldId; });
+    if (!row) return;
+    row.complaint_id = newId;
+    localStorage.setItem("swachhComplaintsLedger", JSON.stringify(list));
+  } catch (err) {
+    console.warn("Could not reconcile complaint id:", err);
+  }
+}
 
   // Modal Actions
   btnModalClose.addEventListener("click", () => reportModal.classList.add("hidden"));

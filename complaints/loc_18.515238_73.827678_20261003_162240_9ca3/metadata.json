@@ -1,0 +1,16 @@
+{
+  "complaint_id": "CMP-20261003_162240-4A81",
+  "timestamp": "2026-10-03T10:52:40Z",
+  "local_time": "2026-10-03 16:22:40",
+  "coordinates": {
+    "latitude": 18.515238,
+    "longitude": 73.827678
+  },
+  "address": "Kanchan Gully, Erandwane, Pune, Pune City Subdistrict, Pune District, Maharashtra, 411001, India",
+  "notes": "",
+  "status": "Pending",
+  "analysis_status": "completed",
+  "original_filename": "garbage3.jpg",
+  "image_file": "waste_photo.jpg",
+  "image_hash": "61e15e26e854ea26ac9a9d0ba6472614a93809dd014c7a9d50f86b1e016faa7c"
+}

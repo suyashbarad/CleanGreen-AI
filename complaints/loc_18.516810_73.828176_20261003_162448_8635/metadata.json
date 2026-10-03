@@ -1,0 +1,16 @@
+{
+  "complaint_id": "CMP-20261003_162448-A030",
+  "timestamp": "2026-10-03T10:54:48Z",
+  "local_time": "2026-10-03 16:24:48",
+  "coordinates": {
+    "latitude": 18.51681,
+    "longitude": 73.828176
+  },
+  "address": "Vishnushastri Chiplunkar Path, Erandwane, Pune, Pune City Subdistrict, Pune District, Maharashtra, 411001, India",
+  "notes": "",
+  "status": "Pending",
+  "analysis_status": "completed",
+  "original_filename": "garbage2.webp",
+  "image_file": "waste_photo.webp",
+  "image_hash": "109c7dac3b8eb159766b6a6f5e747ec35c823f4e39d8d50102d4b974feb65d4b"
+}

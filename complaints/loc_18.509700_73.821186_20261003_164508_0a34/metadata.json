@@ -1,0 +1,16 @@
+{
+  "complaint_id": "CMP-20261003_164508-75F3",
+  "timestamp": "2026-10-03T11:15:08Z",
+  "local_time": "2026-10-03 16:45:08",
+  "coordinates": {
+    "latitude": 18.5097,
+    "longitude": 73.821186
+  },
+  "address": "Kothrud, Erandwane, Pune, Pune City Subdistrict, Pune District, Maharashtra, 411051, India",
+  "notes": "",
+  "status": "Pending",
+  "analysis_status": "completed",
+  "original_filename": "garbage4.jpg",
+  "image_file": "waste_photo.jpg",
+  "image_hash": "6f0beabdb8fa4873e4308a403ee1d7f2c782c8fdee0ab3ec3365bb7666472c2b"
+}

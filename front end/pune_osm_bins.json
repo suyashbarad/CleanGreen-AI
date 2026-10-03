@@ -1,0 +1,320 @@
+[
+  {
+    "type": "node",
+    "id": 670335339,
+    "lat": 18.5467919,
+    "lon": 73.8263048,
+    "tags": {
+      "amenity": "waste_disposal",
+      "highway": "mini_roundabout",
+      "operator": "Cars morgue"
+    }
+  },
+  {
+    "type": "node",
+    "id": 1841515318,
+    "lat": 18.4726266,
+    "lon": 73.8557554,
+    "tags": {
+      "amenity": "waste_basket"
+    }
+  },
+  {
+    "type": "node",
+    "id": 3238255124,
+    "lat": 18.5164842,
+    "lon": 73.8530314,
+    "tags": {
+      "amenity": "waste_disposal"
+    }
+  },
+  {
+    "type": "node",
+    "id": 6116153819,
+    "lat": 18.5655486,
+    "lon": 73.7727602,
+    "tags": {
+      "amenity": "waste_basket"
+    }
+  },
+  {
+    "type": "node",
+    "id": 6116153827,
+    "lat": 18.566066,
+    "lon": 73.7716202,
+    "tags": {
+      "amenity": "waste_basket"
+    }
+  },
+  {
+    "type": "node",
+    "id": 9348358174,
+    "lat": 18.5702818,
+    "lon": 73.7745494,
+    "tags": {
+      "amenity": "waste_basket",
+      "colour": "blue",
+      "material": "metal"
+    }
+  },
+  {
+    "type": "node",
+    "id": 9348358175,
+    "lat": 18.5699668,
+    "lon": 73.7745632,
+    "tags": {
+      "amenity": "waste_basket",
+      "colour": "blue",
+      "material": "metal"
+    }
+  },
+  {
+    "type": "node",
+    "id": 9348358176,
+    "lat": 18.5696902,
+    "lon": 73.7745748,
+    "tags": {
+      "amenity": "waste_basket",
+      "colour": "blue",
+      "material": "metal"
+    }
+  },
+  {
+    "type": "node",
+    "id": 9348358177,
+    "lat": 18.5695739,
+    "lon": 73.7746031,
+    "tags": {
+      "amenity": "waste_basket",
+      "colour": "blue",
+      "material": "metal"
+    }
+  },
+  {
+    "type": "node",
+    "id": 9864897717,
+    "lat": 18.5972303,
+    "lon": 73.7692466,
+    "tags": {
+      "amenity": "recycling",
+      "name": "\u0928\u094d\u092f\u0942 \u092e\u0939\u093e\u0930\u093e\u0937\u094d\u091f\u094d\u0930 \u0938\u094d\u0915\u094d\u0930\u0945\u092a \u0938\u0947\u0902\u091f\u0930",
+      "name:en": "New Maharashtra scrap Center",
+      "name:mr": "\u0928\u094d\u092f\u0942 \u092e\u0939\u093e\u0930\u093e\u0937\u094d\u091f\u094d\u0930 \u0938\u094d\u0915\u094d\u0930\u0945\u092a \u0938\u0947\u0902\u091f\u0930",
+      "phone": "9175940805",
+      "recycling_type": "centre"
+    }
+  },
+  {
+    "type": "node",
+    "id": 9945016677,
+    "lat": 18.5948284,
+    "lon": 73.769259,
+    "tags": {
+      "amenity": "waste_basket",
+      "description": "Penguin dustbin",
+      "material": "plastic",
+      "waste": "trash"
+    }
+  },
+  {
+    "type": "node",
+    "id": 10250294917,
+    "lat": 18.6076158,
+    "lon": 73.7679158,
+    "tags": {
+      "amenity": "waste_basket",
+      "covered": "no",
+      "indoor": "no"
+    }
+  },
+  {
+    "type": "node",
+    "id": 10799554514,
+    "lat": 18.5457243,
+    "lon": 73.7765739,
+    "tags": {
+      "amenity": "waste_basket"
+    }
+  },
+  {
+    "type": "node",
+    "id": 10799575307,
+    "lat": 18.5454751,
+    "lon": 73.778063,
+    "tags": {
+      "amenity": "waste_basket"
+    }
+  },
+  {
+    "type": "node",
+    "id": 10799582505,
+    "lat": 18.5450766,
+    "lon": 73.7791576,
+    "tags": {
+      "amenity": "waste_basket"
+    }
+  },
+  {
+    "type": "node",
+    "id": 10799615808,
+    "lat": 18.5448482,
+    "lon": 73.7797485,
+    "tags": {
+      "amenity": "waste_basket"
+    }
+  },
+  {
+    "type": "node",
+    "id": 10799676705,
+    "lat": 18.5438687,
+    "lon": 73.7846999,
+    "tags": {
+      "amenity": "waste_basket"
+    }
+  },
+  {
+    "type": "node",
+    "id": 10855844401,
+    "lat": 18.5885172,
+    "lon": 73.7601891,
+    "tags": {
+      "amenity": "waste_basket",
+      "material": "metal",
+      "waste": "trash"
+    }
+  },
+  {
+    "type": "node",
+    "id": 11248023147,
+    "lat": 18.598671,
+    "lon": 73.7665873,
+    "tags": {
+      "amenity": "waste_basket",
+      "material": "metal",
+      "operator": "PCMC",
+      "waste": "trash;litter"
+    }
+  },
+  {
+    "type": "node",
+    "id": 11524885230,
+    "lat": 18.6041194,
+    "lon": 73.7700235,
+    "tags": {
+      "amenity": "waste_basket",
+      "material": "metal",
+      "waste": "trash"
+    }
+  },
+  {
+    "type": "node",
+    "id": 11524885231,
+    "lat": 18.6042373,
+    "lon": 73.7700264,
+    "tags": {
+      "amenity": "waste_basket",
+      "material": "metal",
+      "waste": "trash"
+    }
+  },
+  {
+    "type": "node",
+    "id": 11942749935,
+    "lat": 18.4995695,
+    "lon": 73.8487483,
+    "tags": {
+      "access": "yes",
+      "amenity": "waste_disposal",
+      "collection_times": "10:00 am to 11:30 am , 4:00 pm to 6:00 pm",
+      "operator": "Pune Municipal Corporation",
+      "waste": "mixed;organic;plastic;e-waste"
+    }
+  },
+  {
+    "type": "node",
+    "id": 12098053610,
+    "lat": 18.5945818,
+    "lon": 73.7959689,
+    "tags": {
+      "amenity": "waste_basket",
+      "material": "metal"
+    }
+  },
+  {
+    "type": "node",
+    "id": 12098053611,
+    "lat": 18.5943816,
+    "lon": 73.7958317,
+    "tags": {
+      "amenity": "waste_basket",
+      "material": "metal"
+    }
+  },
+  {
+    "type": "node",
+    "id": 12098053612,
+    "lat": 18.594391,
+    "lon": 73.7961239,
+    "tags": {
+      "amenity": "waste_basket",
+      "material": "metal"
+    }
+  },
+  {
+    "type": "node",
+    "id": 12864763659,
+    "lat": 18.5681861,
+    "lon": 73.7769338,
+    "tags": {
+      "amenity": "waste_basket",
+      "waste": "trash"
+    }
+  },
+  {
+    "type": "node",
+    "id": 12864763683,
+    "lat": 18.5674148,
+    "lon": 73.7769687,
+    "tags": {
+      "amenity": "waste_basket",
+      "waste": "trash"
+    }
+  },
+  {
+    "type": "node",
+    "id": 13583153860,
+    "lat": 18.5548115,
+    "lon": 73.7965484,
+    "tags": {
+      "amenity": "waste_basket"
+    }
+  },
+  {
+    "type": "node",
+    "id": 13583153861,
+    "lat": 18.5552619,
+    "lon": 73.7954015,
+    "tags": {
+      "amenity": "waste_basket"
+    }
+  },
+  {
+    "type": "node",
+    "id": 13598173713,
+    "lat": 18.5577598,
+    "lon": 73.7930218,
+    "tags": {
+      "amenity": "waste_basket"
+    }
+  },
+  {
+    "type": "node",
+    "id": 13762832065,
+    "lat": 18.5590057,
+    "lon": 73.7908637,
+    "tags": {
+      "amenity": "waste_basket",
+      "waste": "trash"
+    }
+  }
+]

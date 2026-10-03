@@ -59,11 +59,23 @@ garbade/
 
 ## 🚀 How to Run on Localhost
 
+The backend needs **Pillow** (image analysis) and **google-genai**. Plain `python server.py`
+only works if those are installed in that exact interpreter — otherwise every photo
+fails with "Pillow is not installed".
+
+### macOS / Linux — use the project virtualenv (recommended)
+```bash
+cd ~/Desktop/CleanGreen-AI
+./.venv/bin/python server.py
+```
+
+### Or install the dependencies into the Python you already use
+```bash
+python3 -m pip install --break-system-packages -r requirements.txt
+python3 server.py
+```
+
 ### Method 1: Double-Click (Windows)
 Double-click **`start.bat`** in the project root or inside `front end/`.
 
-### Method 2: Command Line
-```powershell
-python server.py
-```
-Open **`http://localhost:8000`** in your browser.
+Open **`http://localhost:8000`** in your browser. Admin console: **`http://localhost:8000/admin`**.
