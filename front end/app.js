@@ -17,9 +17,27 @@ const state = {
   resolvedAddress: "MIT World Peace University, Paud Road, Kothrud, Pune, Maharashtra 411038",
   uploadedFile: null,
   uploadedImageDataUrl: null,
+  uploadedImageBase64: null,
+  uploadedImageThumb: null,
   exifCoords: null,
   isAdvancedOpen: false
 };
+
+// A phone photo is 8-12 MB and the free backend sleeps when idle, so the browser shrinks
+// the picture, keeps every unsent report in an outbox, and retries with backoff until the
+// server answers. Nothing a citizen submits can be lost silently.
+const UPLOAD_ENDPOINTS = [
+  "/api/submit-complaint",
+  "https://cleangreen-ai-backend.onrender.com/api/submit-complaint"
+];
+const WAKE_ENDPOINTS = [
+  "/api/complaints",
+  "https://cleangreen-ai-backend.onrender.com/api/complaints"
+];
+const OUTBOX_KEY = "swachhUploadOutbox";
+const UPLOAD_MAX_EDGE = 1600;      // the analyzer samples 160 px and Gemini reads 1536 px
+const UPLOAD_QUALITY = 0.85;
+const RETRY_DELAYS_MS = [5000, 15000, 40000, 90000, 240000];
 
 // DOM Elements
 const dropZone = document.getElementById("drop-zone");
@@ -221,8 +239,10 @@ function handleImageFile(file) {
   }
 
   state.uploadedFile = file;
+  state.uploadedImageBase64 = null;
+  state.uploadedImageThumb = null;
   previewFilename.textContent = file.name;
-  previewFilesize.textContent = formatBytes(file.size);
+  previewFilesize.textContent = formatBytes(file.size) + " · optimising…";
 
   // Read 100% original full-size image untouched for maximum AI forensic precision
   const reader = new FileReader();
@@ -231,15 +251,63 @@ function handleImageFile(file) {
     imagePreview.src = state.uploadedImageDataUrl;
     dropzonePrompt.classList.add("hidden");
     previewContainer.classList.remove("hidden");
+    prepareUploadVersions(state.uploadedImageDataUrl).then(function (versions) {
+      state.uploadedImageBase64 = versions.upload;
+      state.uploadedImageThumb = versions.thumb;
+      previewFilesize.textContent = formatBytes(file.size) + " · sending "
+        + Math.round(base64Bytes(versions.upload)) + " KB to AI";
+    });
   };
   reader.readAsDataURL(file);
 
   checkExifGPS(file);
 }
 
+function base64Bytes(dataUrl) {
+  const b64 = String(dataUrl).split(",")[1] || "";
+  return (b64.length * 0.75) / 1024;
+}
+
+// Shrinks the photo once in a canvas: same forensic detail for the model, a fraction of
+// the bytes, and small enough to survive a mobile connection or a sleeping server.
+function prepareUploadVersions(dataUrl) {
+  return new Promise(function (resolve) {
+    const img = new Image();
+    img.onload = function () {
+      const edge = Math.max(img.naturalWidth || img.width, img.naturalHeight || img.height);
+      const scale = edge > UPLOAD_MAX_EDGE ? UPLOAD_MAX_EDGE / edge : 1;
+      const upload = scale === 1 && (dataUrl.split(",")[1] || "").length < 900 * 1024
+        ? dataUrl
+        : redraw(img, scale, UPLOAD_QUALITY);
+      resolve({ upload: upload, thumb: redraw(img, Math.min(scale, 320 / edge), 0.6) });
+    };
+    img.onerror = function () { resolve({ upload: dataUrl, thumb: dataUrl }); };
+    img.src = dataUrl;
+  });
+}
+
+function redraw(img, scale, quality) {
+  try {
+    const w = Math.max(1, Math.round((img.naturalWidth || img.width) * scale));
+    const h = Math.max(1, Math.round((img.naturalHeight || img.height) * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(img, 0, 0, w, h);
+    return canvas.toDataURL("image/jpeg", quality);
+  } catch (err) {
+    return img.src;   // canvas blocked (tainted/tainted memory): send the original
+  }
+}
+
 function clearPhoto() {
   state.uploadedFile = null;
   state.uploadedImageDataUrl = null;
+  state.uploadedImageBase64 = null;
+  state.uploadedImageThumb = null;
   state.exifCoords = null;
   photoInput.value = "";
   imagePreview.src = "";
@@ -336,7 +404,7 @@ function setupControls() {
 
     // Capture all values synchronously BEFORE any state reset
     const notes = state.isAdvancedOpen ? wasteNotesTextarea.value.trim() : "";
-    const uploadPhotoBase64 = state.uploadedImageDataUrl;
+    const uploadPhotoBase64 = state.uploadedImageBase64 || state.uploadedImageDataUrl;
     const uploadFileName = state.uploadedFile.name;
     const uploadLat = state.selectedLat;
     const uploadLng = state.selectedLng;
@@ -366,11 +434,14 @@ function setupControls() {
       original_filename: uploadFileName,
       image_file: uploadFileName,
       urls: {
-        original_image: uploadPhotoBase64,
+        // A 320 px thumbnail keeps the offline receipt readable; the full photo lives in the
+        // outbox until the server confirms it, then both are dropped (localStorage is ~5 MB).
+        original_image: state.uploadedImageThumb || null,
         annotated_image: null,
         json_report: null,
         csv_report: null
       },
+      sync_status: "queued",
       stats: {
         item_count: 0,
         sup_violations: 0,
@@ -396,41 +467,159 @@ function setupControls() {
     // 2. Reset form for next report
     resetCitizenForm();
 
-    // 3. Fire-and-forget upload to server in background (tries relative first, then direct Render URL)
-    const payload = JSON.stringify({
-      image_base64: uploadPhotoBase64,
-      filename: uploadFileName,
-      latitude: uploadLat,
-      longitude: uploadLng,
-      address: uploadAddress,
-      notes: notes,
-      client_complaint_id: instantId,
-      client_local_time: localComplaintObj.local_time
-    });
-
-    fetch("/api/submit-complaint", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: payload
-    }).then(function(res) {
-      if (res.ok) return res.json();
-      throw new Error("Relative fetch failed");
-    }).catch(function() {
-      if (window.location.hostname.includes("vercel.app")) {
-        return fetch("https://cleangreen-ai-backend.onrender.com/api/submit-complaint", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: payload
-        }).then(function(res) { if (res.ok) return res.json(); });
-      }
-    }).then(function(data) {
-      if (!data || !data.complaint_id) return;
-      if (data.complaint_id !== instantId) renameLocalComplaint(instantId, data.complaint_id);
-      console.log("[BACKGROUND] Complaint saved to backend:", data.status, data.complaint_id);
-    }).catch(function(err) {
-      console.warn("[STANDALONE] Backend waking up or offline. Complaint saved in local storage:", err);
+    // 3. Hand the report to the outbox: it retries until the backend really has it
+    queueServerUpload({
+      client_id: instantId,
+      payload: JSON.stringify({
+        image_base64: uploadPhotoBase64,
+        filename: uploadFileName,
+        latitude: uploadLat,
+        longitude: uploadLng,
+        address: uploadAddress,
+        notes: notes,
+        client_complaint_id: instantId,
+        client_local_time: localComplaintObj.local_time
+      })
     });
   });
+
+  // Modal Actions
+  btnModalClose.addEventListener("click", () => reportModal.classList.add("hidden"));
+  btnModalDone.addEventListener("click", () => {
+    reportModal.classList.add("hidden");
+    resetCitizenForm();
+  });
+
+  // Setup Rewards & Incentives Handlers
+  setupRewardsHandlers();
+}
+
+// ==========================================================================
+// Upload outbox — a report is only "submitted" once the server owns it
+// ==========================================================================
+let outboxInMemory = [];
+let outboxFlushing = false;
+let outboxTimer = null;
+
+function readOutbox() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(OUTBOX_KEY) || "null");
+    return Array.isArray(stored) ? stored : outboxInMemory;
+  } catch (err) {
+    return outboxInMemory;
+  }
+}
+
+function writeOutbox(list) {
+  outboxInMemory = list;
+  try {
+    localStorage.setItem(OUTBOX_KEY, JSON.stringify(list));
+  } catch (err) {
+    // Storage is full (private mode / many photos): keep retrying from memory instead.
+    console.warn("[OUTBOX] kept in memory only:", err);
+  }
+}
+
+function queueServerUpload(item) {
+  item.attempts = 0;
+  const list = readOutbox().filter(x => x.client_id !== item.client_id);
+  list.push(item);
+  writeOutbox(list);
+  setSyncBadge(item.client_id, "uploading");
+  flushOutbox();
+}
+
+function dropFromOutbox(clientId) {
+  writeOutbox(readOutbox().filter(x => x.client_id !== clientId));
+}
+
+async function wakeBackend() {
+  for (const url of WAKE_ENDPOINTS) {
+    try {
+      const res = await fetch(url, { method: "GET" });
+      if (res.ok) return true;
+    } catch (err) { /* next endpoint */ }
+  }
+  return false;
+}
+
+async function postToBackend(payload) {
+  for (const url of UPLOAD_ENDPOINTS) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payload
+      });
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (data && (data.complaint_id || data.status === "duplicate")) return data;
+    } catch (err) {
+      console.warn("[OUTBOX] endpoint failed, trying the next one:", url);
+    }
+  }
+  return null;
+}
+
+async function flushOutbox() {
+  if (outboxFlushing) return;
+  outboxFlushing = true;
+  let nextRetryAt = null;
+  try {
+    for (const item of readOutbox()) {
+      setSyncBadge(item.client_id, "uploading");
+      // A free-tier backend sleeps after 15 idle minutes: ping it, then give it time to boot.
+      if (item.attempts === 0) await wakeBackend();
+      const data = await postToBackend(item.payload);
+      if (data) {
+        dropFromOutbox(item.client_id);
+        if (data.complaint_id) renameLocalComplaint(item.client_id, data.complaint_id);
+        setSyncBadge(data.complaint_id || item.client_id, "synced");
+        console.log("[OUTBOX] delivered:", data.status, data.complaint_id);
+      } else {
+        item.attempts += 1;
+        nextRetryAt = nextRetryAt === null ? item.attempts : Math.min(nextRetryAt, item.attempts);
+        setSyncBadge(item.client_id, "retrying", item.attempts);
+        persistOutboxItem(item);
+      }
+    }
+  } finally {
+    outboxFlushing = false;
+  }
+  if (nextRetryAt !== null) armOutboxRetry(nextRetryAt);
+}
+
+function persistOutboxItem(item) {
+  const list = readOutbox().map(x => (x.client_id === item.client_id ? item : x));
+  writeOutbox(list);
+}
+
+function armOutboxRetry(attempts) {
+  if (outboxTimer) return;
+  const delay = RETRY_DELAYS_MS[Math.min(attempts - 1, RETRY_DELAYS_MS.length - 1)];
+  console.log(`[OUTBOX] backend asleep — retrying in ${Math.round(delay / 1000)} s`);
+  outboxTimer = setTimeout(function () {
+    outboxTimer = null;
+    flushOutbox();
+  }, delay);
+}
+
+function setSyncBadge(clientId, mode, attempts) {
+  const el = document.getElementById("citizen-sync-state");
+  if (!el) return;
+  const row = document.getElementById("citizen-sync-row");
+  const pending = readOutbox().length;
+  const styles = {
+    uploading: { color: "#b45309", html: '<i class="fa-solid fa-arrows-rotate fa-spin"></i> SENDING TO SERVER…' },
+    synced: { color: "#047857", html: '<i class="fa-solid fa-circle-check"></i> SYNCED WITH WARD OFFICE' },
+    retrying: { color: "#b45309", html: `<i class="fa-solid fa-clock-rotate-left"></i> SERVER WAKING UP — RETRY ${attempts || 1}/5` },
+    queued: { color: "#64748b", html: '<i class="fa-solid fa-hourglass-half"></i> QUEUED' }
+  };
+  const s = styles[mode] || styles.queued;
+  el.style.color = s.color;
+  el.innerHTML = s.html + (pending > 1 ? ` (${pending} in queue)` : "");
+  if (row) row.dataset.client = clientId;
+}
 
 function saveComplaintToLocalStorage(c) {
   try {
@@ -449,21 +638,11 @@ function renameLocalComplaint(oldId, newId) {
     const row = list.find(function(c) { return c.complaint_id === oldId; });
     if (!row) return;
     row.complaint_id = newId;
+    row.sync_status = "synced";
     localStorage.setItem("swachhComplaintsLedger", JSON.stringify(list));
   } catch (err) {
     console.warn("Could not reconcile complaint id:", err);
   }
-}
-
-  // Modal Actions
-  btnModalClose.addEventListener("click", () => reportModal.classList.add("hidden"));
-  btnModalDone.addEventListener("click", () => {
-    reportModal.classList.add("hidden");
-    resetCitizenForm();
-  });
-
-  // Setup Rewards & Incentives Handlers
-  setupRewardsHandlers();
 }
 
 function resetCitizenForm() {
@@ -501,6 +680,12 @@ function renderCitizenSuccessModal(result, earnedPts = 50, currentBalance = 150)
         <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.35rem;">
           <span style="color: #64748b;">Complaint ID:</span>
           <strong style="font-family: monospace; color: #0f172a;">${result.complaint_id}</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.35rem;" id="citizen-sync-row">
+          <span style="color: #64748b;">Server sync:</span>
+          <strong id="citizen-sync-state" style="color: #b45309; font-size: 0.72rem;">
+            <i class="fa-solid fa-arrows-rotate fa-spin"></i> SENDING TO SERVER…
+          </strong>
         </div>
         <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.35rem;">
           <span style="color: #64748b;">Status:</span>
@@ -719,4 +904,12 @@ document.addEventListener("DOMContentLoaded", () => {
   setupAdvancedToggle();
   setupControls();
   updateGreenCreditsUI();
+
+  // Anything still queued from a previous visit (or a page reload during a retry
+  // window) is delivered now: the free-tier backend is often asleep on first hit.
+  if (readOutbox().length) flushOutbox();
+});
+
+window.addEventListener("online", function () {
+  if (readOutbox().length) flushOutbox();
 });

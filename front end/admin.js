@@ -183,11 +183,37 @@ async function fetchWithRenderWakeup(endpoint, options = {}) {
   throw new Error("Render cold start in progress");
 }
 
+// Tells the ward officer which vision stack the backend is actually running:
+// Gemini + CLIP where the keys/model exist, the pixel sweep where they do not.
+async function refreshEngineChip() {
+  const text = document.getElementById("engine-chip-text");
+  if (!text) return;
+  let engine = null;
+  try {
+    const res = await fetchWithRenderWakeup("/api/health");
+    engine = (await res.json()).engine;
+  } catch (err) {
+    try {
+      const res = await fetch(RENDER_BACKEND_URL + "/api/health");
+      engine = (await res.json()).engine;
+    } catch (e) { /* backend asleep */ }
+  }
+  if (!engine) {
+    text.textContent = "Vision engine offline (backend asleep)";
+    return;
+  }
+  const parts = [];
+  parts.push(engine.gemini_key_present ? "Gemini 2.5 Flash" : "On-device CV sweep");
+  parts.push(engine.clip_verifier === "loaded" ? "CLIP verifier ON" : "CLIP verifier off");
+  text.textContent = parts.join(" · ");
+}
+
 // ==========================================================================
 // 3. Load OSM Bins & Complaints Data
 // ==========================================================================
 async function loadData(isSilent = false) {
   try {
+    if (!isSilent) refreshEngineChip();
     if (!isSilent) {
       // 1. Fetch OSM Bins (Try API first, fallback to static /pune_osm_bins.json)
       try {
@@ -231,6 +257,9 @@ async function loadData(isSilent = false) {
     serverComplaints.forEach(c => complaintMap.set(c.complaint_id, c));
     localComplaints.forEach(c => {
       if (!complaintMap.has(c.complaint_id)) {
+        // Still sitting on this device: the citizen filed it, but the sleeping
+        // free-tier backend has not acknowledged it yet.
+        c.only_on_this_device = true;
         complaintMap.set(c.complaint_id, c);
       } else {
         const existing = complaintMap.get(c.complaint_id);
@@ -702,7 +731,11 @@ function renderComplaintsLedger(list) {
           <button type="button" class="btn-card-delete" title="Delete report" onclick="event.stopPropagation(); deleteComplaintById('${c.complaint_id}')">
             <i class="fa-solid fa-trash-can"></i>
           </button>
-          ${isProcessing ? `
+          ${c.only_on_this_device ? `
+            <span class="complaint-badge-overlay" style="background: rgba(180,83,9,0.92);">
+              <i class="fa-solid fa-clock-rotate-left"></i> QUEUED ON DEVICE
+            </span>
+          ` : isProcessing ? `
             <span class="complaint-badge-overlay" style="background: rgba(2,132,199,0.92);">
               <i class="fa-solid fa-spinner fa-spin"></i> AI SCANNING
             </span>
@@ -740,7 +773,9 @@ function renderComplaintsLedger(list) {
                   <div class="card-progress-fill"></div>
                 </div>
                 <div class="card-progress-subtext">
-                  <span>Detecting items & bounding boxes...</span>
+                  <span>${c.only_on_this_device
+                    ? "Not on the ward server yet — the browser keeps retrying while the backend wakes up."
+                    : "Detecting items & bounding boxes..."}</span>
                 </div>
               </div>
             ` : (isFailed ? `
@@ -975,10 +1010,11 @@ window.openForensicDrawerById = function (cid) {
 
     ${renderStreamBreakdown(m)}
 
-    ${report.summary ? `
+    ${report.summary || report.analysis_engine ? `
       <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 0.6rem 0.75rem; margin-bottom: 1rem; font-size: 0.72rem; color: #475569; line-height: 1.55;">
-        <i class="fa-solid fa-eye" style="color: #0f172a;"></i>
-        <strong style="color: #0f172a;">VISION AUDIT NOTE:</strong> ${esc(report.summary)}
+        ${report.analysis_engine ? `<div style="margin-bottom: 0.35rem;"><i class="fa-solid fa-microchip" style="color: #059669;"></i> <strong style="color: #0f172a;">ENGINE:</strong> ${esc(report.analysis_engine)}</div>` : ""}
+        ${report.summary ? `<i class="fa-solid fa-eye" style="color: #0f172a;"></i>
+        <strong style="color: #0f172a;">VISION AUDIT NOTE:</strong> ${esc(report.summary)}` : ""}
       </div>
     ` : ""}
 

@@ -266,6 +266,95 @@ def build_metrics(items, coverage=0.0, mean_edge=0.0, resolution=""):
     }
 
 
+def box_position_label(ymin: int, xmin: int, ymax: int, xmax: int) -> str:
+    """'top-left' style label for a 0-1000 box, used to tell same-named items apart."""
+    cy, cx = (ymin + ymax) / 2.0, (xmin + xmax) / 2.0
+    row = "top" if cy < 380 else "bottom" if cy > 620 else ""
+    col = "left" if cx < 380 else "right" if cx > 620 else ("centre" if not row else "")
+    return "-".join(p for p in (row, col) if p) or "centre"
+
+
+def frame_coverage(items) -> float:
+    """Share of the frame the boxes occupy, from relative 0-1000 boxes."""
+    total = 0.0
+    for it in items:
+        box = it.get("bounding_box") or []
+        if len(box) == 4:
+            total += max(0, box[2] - box[0]) * max(0, box[3] - box[1]) / 1_000_000
+    return min(1.0, total)
+
+
+def normalize_model_report(report_json: Dict[str, Any], engine: str) -> int:
+    """Repair whatever the engine returned into boxes and labels the UI can render.
+
+    Models hand back coordinates outside 0-1000, zero-size boxes, invented stream
+    spellings and the same item name on five different boxes; each of those breaks
+    the annotated photo or the CSV export downstream. Returns how many items were
+    dropped so the caller knows whether the metrics need recomputing.
+    """
+    raw_items = report_json.get("items")
+    items = raw_items if isinstance(raw_items, list) else []
+
+    cleaned, names_seen = [], {}
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        raw_box = it.get("bounding_box") or it.get("box_2d") or []
+        if len(raw_box) != 4:
+            continue
+        try:
+            a, b, c, d = (int(round(float(v))) for v in raw_box)
+        except (TypeError, ValueError):
+            continue
+        ymin, xmin = max(0, min(1000, a)), max(0, min(1000, b))
+        ymax, xmax = max(0, min(1000, c)), max(0, min(1000, d))
+        if ymax < ymin:
+            ymin, ymax = ymax, ymin
+        if xmax < xmin:
+            xmin, xmax = xmax, xmin
+        if ymax - ymin < 5 or xmax - xmin < 5:
+            continue
+
+        stream = it.get("stream")
+        if stream not in STREAM_COLORS:
+            stream = "GENERIC_RESIDUAL"
+        try:
+            count = max(1, int(it.get("count") or 1))
+        except (TypeError, ValueError):
+            count = 1
+        try:
+            confidence = min(0.99, max(0.30, float(it.get("confidence") or 0.75)))
+        except (TypeError, ValueError):
+            confidence = 0.75
+
+        name = str(it.get("item_name") or it.get("name") or "Unidentified Artifact").strip()
+        names_seen[name.lower()] = names_seen.get(name.lower(), 0) + 1
+        if names_seen[name.lower()] > 1:
+            suffix = box_position_label(ymin, xmin, ymax, xmax)
+            name = f"{name} ({suffix})" if suffix else f"{name} ({names_seen[name.lower()]})"
+            if name.lower() in names_seen:
+                name = f"{name} #{names_seen[name.lower()]}"
+            names_seen[name.lower()] = 1
+
+        it.update({
+            "item_name": name,
+            "count": count,
+            "confidence": confidence,
+            "sup_violation": bool(it.get("sup_violation")),
+            "stream": stream,
+            "bounding_box": [ymin, xmin, ymax, xmax],
+        })
+        it.pop("box_2d", None)
+        cleaned.append(it)
+
+    for n, it in enumerate(cleaned, 1):
+        it["item_id"] = f"ITEM-{n:03d}"
+
+    report_json["items"] = cleaned
+    report_json["analysis_engine"] = engine
+    return len(items) - len(cleaned)
+
+
 def create_complaint_folder(base_dir: Path, lat: float, lng: float, complaint_id: Optional[str] = None) -> Tuple[Path, str]:
     """Creates a unique complaint folder based on GPS coords, timestamp, and random hex."""
     timestamp = site_clock("%Y%m%d_%H%M%S")
@@ -349,13 +438,20 @@ def run_background_ai_analysis(folder_path: Path, image_file_path: Path):
     try:
         print(f"[AI WORKER] Starting background Vision AI for: {folder_path.name}")
         prompt = "Analyze this garbage photo completely. List EVERY item you can see with bounding boxes."
-        raw_output = run_gemini_analysis(folder_path, prompt)
+        raw_output, engine = run_gemini_analysis(folder_path, prompt)
 
         report_json, markdown_summary = extract_json_and_markdown(raw_output)
         if not report_json:
             report_json = {"items": [], "summary": markdown_summary}
-        if not report_json.get("metrics"):
-            report_json["metrics"] = build_metrics(report_json.get("items", []))
+
+        items_before = len(report_json.get("items") or [])
+        dropped = normalize_model_report(report_json, engine)
+        old_metrics = report_json.get("metrics") or {}
+        if dropped or items_before == 0 or not old_metrics:
+            # Boxes the engine reported but the renderer cannot draw change the totals.
+            fresh = build_metrics(report_json["items"], coverage=frame_coverage(report_json["items"]))
+            report_json["metrics"] = {**fresh, **{k: old_metrics[k] for k in
+                                                  ("mean_edge_density", "image_resolution") if k in old_metrics}}
 
         # Save summary markdown
         with open(folder_path / "report_summary.md", "w", encoding="utf-8") as f:
@@ -405,10 +501,11 @@ def run_background_ai_analysis(folder_path: Path, image_file_path: Path):
                 pass
 
 
-def run_gemini_analysis(folder_path: Path, prompt: str) -> str:
+def run_gemini_analysis(folder_path: Path, prompt: str) -> Tuple[str, str]:
     """
     Runs Gemini Vision directly through the Google GenAI SDK.
-    Falls back gracefully to dynamic computer vision analysis on the uploaded photo if API key is absent.
+    Returns (raw model output, engine label). Falls back to the on-device
+    computer-vision sweep when no API key is configured.
     """
     api_key = os.environ.get("GEMINI_API_KEY")
 
@@ -481,14 +578,17 @@ RULES:
                     )
                     if response and response.text:
                         print(f"[AI WORKER] Gemini response received successfully.", flush=True)
-                        return response.text.strip()
+                        return response.text.strip(), f"Gemini {model} (+ CLIP verifier gate)"
                 except Exception as err:
                     print(f"[AI WORKER] Gemini API ({model}) notice: {err}", flush=True)
                     time.sleep(2)
 
     # Dynamic Computer Vision Analysis tailored to the uploaded image file
     print(f"[AI WORKER] Analyzing uploaded photo {image_path.name} dynamically using computer vision...", flush=True)
-    return generate_dynamic_image_analysis(image_path)
+    engine = "On-device CV sweep"
+    if vision_ml is not None and vision_ml.use_ml():
+        engine += " + CLIP verifier"
+    return generate_dynamic_image_analysis(image_path), engine
 
 
 def generate_dynamic_image_analysis(image_path: Path) -> str:
@@ -585,6 +685,18 @@ def generate_dynamic_image_analysis(image_path: Path) -> str:
                               / total_cells) if modal_key else 0.0
             frame_edge = sum(sum(row) for row in edge) / total_cells
             is_studio_backdrop = modal_share >= 0.40 and backdrop_share >= 0.30 and frame_edge <= 25.0
+
+            # Lawn / park / field: a quarter of the frame in living green is a natural scene,
+            # not a Pune dump, and an animal standing on it reads as "artifact" to pixel gates.
+            green_cells = 0
+            for r in range(rows):
+                for c in range(cols):
+                    gr, gg, gb = cell_rgb[r][c]
+                    hue, sat, val = colorsys.rgb_to_hsv(gr / 255, gg / 255, gb / 255)
+                    if 0.20 <= hue <= 0.45 and sat > 0.18 and val > 0.12:
+                        green_cells += 1
+            green_share = green_cells / total_cells if total_cells else 0.0
+            is_vegetation_scene = False
 
             def segment(flag_fn, min_cells):
                 flagged = [[False] * cols for _ in range(rows)]
@@ -695,6 +807,12 @@ def generate_dynamic_image_analysis(image_path: Path) -> str:
                 len(kept) >= 2 or kept_coverage >= 0.05 or max_edge >= 22
             )
 
+            # Green-dominant frame whose flags are sparse and soft is a lawn or field with a
+            # subject on it — an animal in grass lights up pixel gates exactly like litter.
+            # Real dumps stay dense (>=68% coverage, edge density >=50 on this project's photos).
+            if is_littered and green_share >= 0.20 and kept_coverage < 0.60 and mean_edge < 45:
+                is_littered, is_vegetation_scene = False, True
+
             # Sparse scenes need real objects, not a scattering of noise cells: clouds,
             # grass tips and dappled shadows each flag weakly on their own.
             if is_littered and kept_coverage < 0.20:
@@ -716,7 +834,8 @@ def generate_dynamic_image_analysis(image_path: Path) -> str:
             if os.environ.get("CV_DEBUG"):
                 print(
                     f"[CV_DEBUG] {image_path.name}: grid={rows}x{cols} blobs={len(blobs)} kept={len(kept)} "
-                    f"coverage={kept_coverage:.3f} mean_edge={mean_edge:.1f} littered={is_littered} "
+                    f"coverage={kept_coverage:.3f} mean_edge={mean_edge:.1f} green={green_share:.2f} "
+                    f"littered={is_littered} "
                     f"ml_p_litter={'-' if ml_score is None else f'{ml_score:.4f}'} rescue={ml_rescue}",
                     flush=True,
                 )
@@ -890,6 +1009,11 @@ def generate_dynamic_image_analysis(image_path: Path) -> str:
                     scene_note = (
                         f"The CLIP vision model rates this frame {(1 - ml_score):.0%} not-litter "
                         f"(P(litter)={ml_score:.3f}) — it reads as a scene or a subject, not as waste."
+                    )
+                elif is_vegetation_scene:
+                    scene_note = (
+                        f"{green_share:.0%} of the frame is living green (lawn, plants or field), "
+                        f"which is a natural scene rather than a waste dump."
                     )
                 elif is_studio_backdrop:
                     scene_note = (

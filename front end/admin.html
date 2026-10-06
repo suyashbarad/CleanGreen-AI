@@ -66,6 +66,10 @@
       <button type="button" class="tab-btn" id="tab-btn-complaints" data-tab="tab-complaints">
         <i class="fa-solid fa-list-check"></i> Complaints Ledger (<span id="badge-complaints-count">0</span>)
       </button>
+      <span id="engine-chip" title="Which vision stack answered the last analysis"
+            style="margin-left:auto; align-self:center; display:flex; align-items:center; gap:6px; font-size:0.7rem; font-weight:700; letter-spacing:0.02em; color:#475569; background:rgba(255,255,255,0.7); border:1px solid rgba(226,232,240,0.9); border-radius:999px; padding:4px 10px;">
+        <i class="fa-solid fa-microchip" style="color:#059669;"></i> <span id="engine-chip-text">Checking vision engine…</span>
+      </span>
     </div>
   </div>
 
@@ -238,6 +242,6 @@
   <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <!-- Admin Application Logic (Cache Busted) -->
-  <script src="admin.js?v=4.4"></script>
+  <script src="admin.js?v=4.5"></script>
 </body>
 </html>

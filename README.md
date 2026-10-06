@@ -79,6 +79,44 @@ and `CV_ML=0` turns it off for side-by-side testing of the pure heuristics.
 
 ---
 
+## 📤 Why an upload always reaches the ward office (`front end/app.js`)
+
+The free Render tier sleeps after ~15 idle minutes, so a plain `fetch()` from the phone either
+hangs or is lost when the tab closes — the citizen sees "submitted" while the server has nothing.
+The front end therefore treats the browser as the source of truth until the server confirms:
+
+1. The photo is downscaled to 1600 px JPEG (`UPLOAD_MAX_EDGE`, `UPLOAD_QUALITY`) before it is sent,
+   so a 12 MB phone camera file becomes a few hundred KB that survives mobile data.
+2. The ledger stores only a 320 px thumbnail (`urls.original_image`), keeping localStorage under quota.
+3. The real payload goes into the **upload outbox** (`swachhUploadOutbox`) and is retried with
+   exponential backoff (`RETRY_DELAYS_MS` = 5 s → 240 s), pinging `/api/complaints` first to wake
+   Render. Both the Vercel rewrite (`/api/submit-complaint`) and the direct Render URL are tried.
+4. Only a `200` with a `complaint_id` (or `status: "duplicate"`) removes the item from the queue;
+   the local row is then renamed to the server ID and marked `sync_status: "synced"`.
+5. Retries also fire on page load and on the browser `online` event, so a report queued in a
+   tunnel is delivered the moment signal returns. Until then the admin console shows it as
+   **QUEUED ON DEVICE**, so nothing silently disappears from the ward's ledger.
+
+---
+
+## 🌐 Live deployment (Vercel front end + Render backend)
+
+`front end/vercel.json` rewrites `/api/:path*` and `/complaints/:path*` to
+`https://cleangreen-ai-backend.onrender.com`. Set these in the Render service:
+
+| Variable | Value | Effect |
+|---|---|---|
+| `GEMINI_API_KEY` | free key from AI Studio | brand-level item names, real scene reading |
+| `COMPLAINTS_DIR` | `/data/complaints` (+ a 1 GB Persistent Disk mounted at `/data`) | filed complaints survive a restart/redeploy |
+| `CV_ML` | `0` (only to force the heuristic path) | turns the CLIP verifier off |
+
+`GET /api/health` answers with the engine actually live, e.g.
+`{"clip_verifier":"unavailable","gemini_key_present":true,"primary_engine":"Gemini 2.5 Flash + CLIP verifier"}`
+— the admin console shows the same state in the tab-bar chip, and every report carries
+`analysis_engine` so a judge can see which model wrote it.
+
+---
+
 ## 🚀 How to Run on Localhost
 
 The backend needs **Pillow** (image analysis) and **google-genai**. Plain `python server.py`

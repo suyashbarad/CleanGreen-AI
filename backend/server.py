@@ -65,6 +65,33 @@ def register_existing_complaint_hashes():
         print(f"[BACKEND] Dedupe registry loaded {count} previously reported photo(s).")
 
 
+def vision_engine_report():
+    """Which vision stack is actually running, without blocking on a model load."""
+    state = "not installed"
+    try:
+        import vision_ml
+        if vision_ml._model is not None:
+            state = "loaded"
+        elif vision_ml._failed:
+            state = "unavailable"
+        elif os.environ.get("CV_ML", "1") == "0":
+            state = "disabled by CV_ML=0"
+        else:
+            state = "loading"
+    except ImportError:
+        state = "not installed"
+
+    return {
+        "clip_verifier": state,
+        "gemini_key_present": bool(os.environ.get("GEMINI_API_KEY")),
+        "primary_engine": "Gemini 2.5 Flash + CLIP verifier" if os.environ.get("GEMINI_API_KEY")
+                          else "colour/edge CV detector" + (" + CLIP verifier" if state == "loaded" else ""),
+        "complaints_dir": str(COMPLAINTS_DIR),
+        "persistent_disk": os.environ.get("COMPLAINTS_DIR") is not None,
+        "python": sys.version.split()[0],
+    }
+
+
 def coverage_from_boxes(items):
     """Sum of box areas as a share of the frame, for reports saved before metrics existed.
 
@@ -105,10 +132,13 @@ class CleanGreenRequestHandler(http.server.SimpleHTTPRequestHandler):
         path = url_parsed.path
         # 0. Health / Ping endpoint (Keep-Alive)
         if path in ("/api/ping", "/api/health"):
+            payload = {"status": "ok", "message": "CleanGreen AI Backend active"}
+            if path == "/api/health":
+                payload["engine"] = vision_engine_report()
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.end_headers()
-            self.wfile.write(json.dumps({"status": "ok", "message": "CleanGreen AI Backend active"}).encode('utf-8'))
+            self.wfile.write(json.dumps(payload).encode('utf-8'))
             return
 
         # 1. Admin redirect
