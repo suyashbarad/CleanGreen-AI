@@ -1,0 +1,17 @@
+{
+  "complaint_id": "CMP-20261006_234845-21CB",
+  "timestamp": "2026-10-06T18:18:45Z",
+  "local_time": "2026-10-06 23:48:45",
+  "timezone": "Asia/Kolkata",
+  "coordinates": {
+    "latitude": 18.510965,
+    "longitude": 73.804672
+  },
+  "address": "Kothrud, Pune, Pune City Subdistrict, Pune District, Maharashtra, 411051, India",
+  "notes": "",
+  "status": "Pending",
+  "analysis_status": "completed",
+  "original_filename": "garbage14.jpg",
+  "image_file": "waste_photo.jpg",
+  "image_hash": "a2b90e7b836d1bbe68d5329430377af6b8e8afeb7137ecc74dff45671c66a696"
+}
