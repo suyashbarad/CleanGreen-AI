@@ -203,8 +203,21 @@ async function refreshEngineChip() {
     return;
   }
   const parts = [];
-  parts.push(engine.gemini_key_present ? "Gemini 2.5 Flash" : "On-device CV sweep");
+  const tried = engine.gemini_last_attempt && engine.gemini_last_attempt !== "no analysis run yet";
+  // A key is not a model: once an analysis has run, only an actual answer counts.
+  const geminiWorks = engine.gemini_key_present && engine.gemini_sdk_installed &&
+                      (!tried || /answered$/.test(engine.gemini_last_attempt));
+  if (geminiWorks) {
+    parts.push("Gemini 2.5 Flash");
+  } else if (engine.gemini_key_present) {
+    // Key set, but the SDK is missing or the API refused it, so the pixel sweep is answering.
+    parts.push("CV sweep — Gemini NOT answering");
+  } else {
+    parts.push("On-device CV sweep");
+  }
   parts.push(engine.clip_verifier === "loaded" ? "CLIP verifier ON" : "CLIP verifier off");
+  const chip = document.getElementById("engine-chip");
+  if (chip) chip.title = engine.gemini_last_attempt || "Last analysis engine report";
   text.textContent = parts.join(" · ");
 }
 

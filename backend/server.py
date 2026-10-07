@@ -81,11 +81,23 @@ def vision_engine_report():
     except ImportError:
         state = "not installed"
 
+    # GEMINI_STATUS is filled in by the analyzer at import time (SDK import result) and
+    # on every analysis (why Gemini was used, skipped, or failed) — that is what tells a
+    # deployed service apart from a local one without needing shell access.
+    from analyzer import GEMINI_STATUS
+
+    gemini_live = GEMINI_STATUS["key_present"] and GEMINI_STATUS["sdk_installed"]
+    primary = ("Gemini 2.5 Flash" if gemini_live else "colour/edge CV sweep")
+    if state in ("loaded", "loading"):
+        primary += " + CLIP verifier"
+
     return {
         "clip_verifier": state,
-        "gemini_key_present": bool(os.environ.get("GEMINI_API_KEY")),
-        "primary_engine": "Gemini 2.5 Flash + CLIP verifier" if os.environ.get("GEMINI_API_KEY")
-                          else "colour/edge CV detector" + (" + CLIP verifier" if state == "loaded" else ""),
+        "gemini_key_present": GEMINI_STATUS["key_present"],
+        "gemini_sdk_installed": GEMINI_STATUS["sdk_installed"],
+        "gemini_sdk_import_error": GEMINI_STATUS["sdk_import_error"],
+        "gemini_last_attempt": GEMINI_STATUS["last_attempt"],
+        "primary_engine": primary,
         "complaints_dir": str(COMPLAINTS_DIR),
         "persistent_disk": os.environ.get("COMPLAINTS_DIR") is not None,
         "python": sys.version.split()[0],

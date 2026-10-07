@@ -52,8 +52,19 @@ except ImportError:
 try:
     from google import genai
     GENAI_AVAILABLE = True
-except ImportError:
+    GENAI_IMPORT_ERROR = ""
+except ImportError as genai_err:
     GENAI_AVAILABLE = False
+    GENAI_IMPORT_ERROR = f"{type(genai_err).__name__}: {genai_err}"
+
+# Updated by every analysis so a deployed service can be diagnosed from the browser:
+# GET /api/health shows whether Gemini was used, skipped, or failed and why.
+GEMINI_STATUS = {
+    "sdk_installed": GENAI_AVAILABLE,
+    "sdk_import_error": GENAI_IMPORT_ERROR,
+    "key_present": bool(os.environ.get("GEMINI_API_KEY")),
+    "last_attempt": "no analysis run yet",
+}
 
 try:
     import vision_ml
@@ -508,6 +519,7 @@ def run_gemini_analysis(folder_path: Path, prompt: str) -> Tuple[str, str]:
     computer-vision sweep when no API key is configured.
     """
     api_key = os.environ.get("GEMINI_API_KEY")
+    GEMINI_STATUS["key_present"] = bool(api_key)
 
     image_files = list(folder_path.glob("waste_photo.*"))
     if not image_files:
@@ -564,6 +576,7 @@ RULES:
             image_bytes = f.read()
 
         candidate_models = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"]
+        GEMINI_STATUS["last_attempt"] = "called, but every model returned no text"
         for model in candidate_models:
             for attempt in range(2):
                 try:
@@ -578,16 +591,25 @@ RULES:
                     )
                     if response and response.text:
                         print(f"[AI WORKER] Gemini response received successfully.", flush=True)
+                        GEMINI_STATUS["last_attempt"] = f"{model} answered"
                         return response.text.strip(), f"Gemini {model} (+ CLIP verifier gate)"
                 except Exception as err:
+                    GEMINI_STATUS["last_attempt"] = f"{model} failed: {type(err).__name__}: {err}"
                     print(f"[AI WORKER] Gemini API ({model}) notice: {err}", flush=True)
                     time.sleep(2)
 
     # Dynamic Computer Vision Analysis tailored to the uploaded image file
-    print(f"[AI WORKER] Analyzing uploaded photo {image_path.name} dynamically using computer vision...", flush=True)
-    engine = "On-device CV sweep"
+    if not api_key:
+        GEMINI_STATUS["last_attempt"] = "skipped: GEMINI_API_KEY is not set on this service"
+        engine = "On-device CV sweep (no GEMINI_API_KEY)"
+    elif not GENAI_AVAILABLE:
+        GEMINI_STATUS["last_attempt"] = f"skipped: google-genai not importable ({GENAI_IMPORT_ERROR})"
+        engine = "On-device CV sweep (google-genai missing on this host)"
+    else:
+        engine = "On-device CV sweep (Gemini gave no answer)"
     if vision_ml is not None and vision_ml.use_ml():
         engine += " + CLIP verifier"
+    print(f"[AI WORKER] {GEMINI_STATUS['last_attempt']} — {engine}.", flush=True)
     return generate_dynamic_image_analysis(image_path), engine
 
 

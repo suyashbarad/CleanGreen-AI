@@ -109,7 +109,8 @@ The admin console's tab-bar chip is two facts joined by one dot:
 | Chip text | Meaning | Source |
 |---|---|---|
 | `On-device CV sweep` | No Gemini key, so Pillow colour/edge maths proposed every box | `analyzer.generate_dynamic_image_analysis()` |
-| `Gemini 2.5 Flash` | A key is set, so a real vision model read the photo | `analyzer.run_gemini_analysis()` |
+| `Gemini 2.5 Flash` | A key is set and the SDK imported, so a real vision model read the photo | `analyzer.run_gemini_analysis()` |
+| `CV sweep — Gemini NOT answering` | A key is set but is not producing answers (SDK missing, key rejected, or every model failed) — the chip's tooltip shows the exact API error | `analyzer.GEMINI_STATUS` |
 | `CLIP verifier ON` | torch is installed and the model is resident, so boxes were veto-checked | `vision_ml.py` |
 | `CLIP verifier off` | No torch (Render free tier), so only the pixel gates rejected fakes | `vision_ml.py` |
 | `Vision engine offline` | The backend is asleep; nothing answered yet | `/api/health` unreachable |
@@ -165,10 +166,20 @@ The front end therefore treats the browser as the source of truth until the serv
 | `COMPLAINTS_DIR` | `/data/complaints` (+ a 1 GB Persistent Disk mounted at `/data`) | filed complaints survive a restart/redeploy |
 | `CV_ML` | `0` (only to force the heuristic path) | turns the CLIP verifier off |
 
-`GET /api/health` answers with the engine actually live, e.g.
-`{"clip_verifier":"unavailable","gemini_key_present":true,"primary_engine":"Gemini 2.5 Flash + CLIP verifier"}`
-— the admin console shows the same state in the tab-bar chip, and every report carries
-`analysis_engine` so a judge can see which model wrote it.
+`GET /api/health` answers with the engine actually live — not what is configured, but what really
+answered the last photo:
+
+```json
+{"clip_verifier":"unavailable","gemini_key_present":true,"gemini_sdk_installed":false,
+ "gemini_sdk_import_error":"ModuleNotFoundError: No module named 'google'","primary_engine":"colour/edge CV sweep",
+ "gemini_last_attempt":"skipped: google-genai not importable (…)","persistent_disk":false,"python":"3.14.3"}
+```
+
+`gemini_key_present` alone is not enough: a key without an importable SDK — or one the API refuses —
+still means the pixel sweep is doing the work, which is what the chip calls out as
+`CV sweep — Gemini NOT answering` (hover it for the exact error). The same state lands in every
+report's `analysis_engine` (e.g. `On-device CV sweep (Gemini gave no answer) + CLIP verifier`) and
+the drawer prints it as an `ENGINE:` line, so any output can be traced to the model that produced it.
 
 ---
 
