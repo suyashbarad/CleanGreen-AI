@@ -1,7 +1,10 @@
 # Clean and Green Tech — Team Pixel Minds
 
 A full-stack municipal waste geo-tagging & forensic audit platform.
-Allows users to upload photos of garbage, pinpoint exact coordinates on an interactive map (pre-set to MIT-WPU Kothrud, Pune), and automatically triggers the **Garbage-Vision (v2.0)** skill on **Gemini 3.8** via the Antigravity CLI (`agy`) headlessly in the background.
+Citizens upload a photo of garbage, pinpoint exact coordinates on an interactive map (pre-set to
+MIT-WPU Kothrud, Pune), and the report is delivered to the ward office even if the free-tier
+backend is asleep. The background **Vision AI** runs one of three engines — Gemini, the offline
+colour/edge CV sweep, and CLIP as a verifier — and every report says which one wrote it.
 
 ---
 
@@ -10,19 +13,24 @@ Allows users to upload photos of garbage, pinpoint exact coordinates on an inter
 ```
 garbade/
 ├── front end/               # Client interface
-│   ├── index.html          # Clean & Green Tech UI
-│   ├── style.css           # Modern engineering styling & microphysics
-│   ├── app.js              # Leaflet map + backend API integration
+│   ├── index.html          # Citizen uploader UI
+│   ├── admin.html          # Ward-office console (map, ledger, forensic drawer)
+│   ├── app.js              # Leaflet map, upload outbox, retry + sync status
+│   ├── admin.js            # Ledger merge, vision-engine chip, drawer
+│   ├── vercel.json         # /api + /complaints rewrites to the Render backend
 │   ├── server.py           # Launcher pointing to backend server
 │   └── start.bat           # 1-click Windows launcher
 ├── backend/                # Backend API & AI pipeline
-│   ├── server.py           # Threaded HTTP server (Static + /api/submit-complaint)
-│   └── analyzer.py         # Headless agy runner + bbox annotator + CSV exporter
+│   ├── server.py           # Threaded HTTP server (static + /api/* + /complaints/*)
+│   ├── analyzer.py         # CV sweep, Gemini call, bbox annotator, metrics, CSV exporter
+│   └── vision_ml.py        # Optional CLIP verifier that vetoes false positives
+├── tests/
+│   └── vision_regression.py # Must-be-CLEAN / must-be-litter fixture suite
 ├── complaints/             # Output directory for all submitted complaints
 │   └── loc_{lat}_{lng}_{timestamp}_{id}/
 │       ├── waste_photo.jpg       # Original user photo
 │       ├── metadata.json         # Telemetry, GPS, address & timestamp
-│       ├── report.json           # Forensic JSON report (garbage-vision schema)
+│       ├── report.json           # Forensic report (items, metrics, analysis_engine)
 │       ├── annotated_photo.jpg   # Photo with color-coded stream bounding boxes
 │       ├── report.csv            # CSV audit item inventory
 │       └── report_summary.md     # Executive markdown audit summary
@@ -41,13 +49,21 @@ garbade/
    - Backend saves the complaint into a unique folder: `complaints/loc_{lat}_{lng}_{timestamp}_{random_hex}/`.
    - Stores `waste_photo.jpg` and `metadata.json` (GPS coordinates, time, address).
 3. **Vision Analysis** (background thread, never blocks the upload response):
-   - With `GEMINI_API_KEY` set: the Gemini API is called for brand-level item detection.
-   - Without a key: `analyzer.generate_dynamic_image_analysis()` runs the offline
-     colour/edge pipeline (local-contrast grid, blob segmentation, HSV classification).
+   - `analyzer.run_gemini_analysis()` picks the engine and returns `(raw_output, engine_label)`.
+   - With `GEMINI_API_KEY` set: Gemini Vision (`gemini-2.5-flash`, then `-lite`, then `2.0-flash`)
+     reads the photo for brand-level item detection.
+   - Without a key: `analyzer.generate_dynamic_image_analysis()` runs the offline colour/edge
+     pipeline (local-contrast grid, blob segmentation, HSV classification).
    - If `torch` + `transformers` are installed, `backend/vision_ml.py` additionally loads
-     CLIP (`openai/clip-vit-base-patch32`) as a **verifier** — see below.
+     CLIP (`openai/clip-vit-base-patch32`) as a **verifier** — it only vetoes, see below.
+   - Whatever the engine returned is then passed through `normalize_model_report()`: boxes are
+     clamped to 0–1000 and degenerate ones dropped, streams validated against the eight legal
+     SWM values, counts/confidences bounded, and repeated item names made unique by position
+     (`Clear PET Bottle (top-left)`) so no two boxes in a frame can ever share a label.
 4. **Artifact Generation in the Same Folder**:
-   - **`report.json`**: Multi-item enumeration with 0–1000 2D bounding boxes (`box_2d`), SWM classification, resin codes, SUP infractions, and EPR brand audit.
+   - **`report.json`**: Multi-item enumeration with 0–1000 bounding boxes, SWM classification,
+     resin codes, SUP infractions, brand/EPR audit, a `metrics` block (severity index, tonnage,
+     stream breakdown, recommended action) and `analysis_engine` naming the model that answered.
    - **`annotated_photo.jpg`**: Colored bounding boxes drawn over detected items with brand and stream labels.
    - **`report.csv`**: Tabular CSV spreadsheet listing all items, counts, streams, materials, and bounding boxes.
    - **`report_summary.md`**: Executive forensic audit summary.
@@ -76,6 +92,45 @@ in the middle of that gap.
 The module is **optional by design**: it is lazy-loaded, prints
 `[VISION ML] Disabled (...)` and steps aside when `torch` is missing (Render free tier = 512 MB),
 and `CV_ML=0` turns it off for side-by-side testing of the pure heuristics.
+
+**Without torch**, the same job falls to three pixel gates in `generate_dynamic_image_analysis()`:
+a studio-backdrop rejection (one flat colour over most of the frame, no edges), a sparse-scene
+rejection (low coverage, no blob big enough to be a pile), and a **vegetation-scene rejection** —
+≥20 % of the frame in living green with soft, scattered flags is a lawn with a subject on it, not
+a Pune dump. That last gate is what keeps an animal photo from producing 12 fake items on the
+deployed site, where CLIP cannot run.
+
+---
+
+## 🔍 "On-device CV sweep · CLIP verifier ON" — reading the engine
+
+The admin console's tab-bar chip is two facts joined by one dot:
+
+| Chip text | Meaning | Source |
+|---|---|---|
+| `On-device CV sweep` | No Gemini key, so Pillow colour/edge maths proposed every box | `analyzer.generate_dynamic_image_analysis()` |
+| `Gemini 2.5 Flash` | A key is set, so a real vision model read the photo | `analyzer.run_gemini_analysis()` |
+| `CLIP verifier ON` | torch is installed and the model is resident, so boxes were veto-checked | `vision_ml.py` |
+| `CLIP verifier off` | No torch (Render free tier), so only the pixel gates rejected fakes | `vision_ml.py` |
+| `Vision engine offline` | The backend is asleep; nothing answered yet | `/api/health` unreachable |
+
+Proposals always come from CV **or** Gemini; CLIP never proposes, it only deletes. Each report also
+carries the same information in `report.json → analysis_engine`, and the drawer prints it as an
+`ENGINE:` line, so any output can be traced to the model that produced it.
+
+---
+
+## 🧪 Vision regression suite (`tests/vision_regression.py`)
+
+```bash
+./.venv/bin/python tests/vision_regression.py          # with the CLIP verifier
+./.venv/bin/python tests/vision_regression.py --no-ml  # Render parity (pixel gates only)
+```
+
+Seven photos that must come back `0 items / CLEAN` (the project's dog/pug/clean-street filings plus
+three synthetic backdrops: studio white, sky gradient, brick wall) and seven real dumps that must
+yield 5–14 boxes with **no duplicate labels** and no box over 10 % of the frame. Annotated images
+are written to `.test-output/`; exit code is non-zero on any failure.
 
 ---
 
