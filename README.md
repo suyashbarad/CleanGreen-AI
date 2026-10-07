@@ -50,15 +50,26 @@ garbade/
    - Stores `waste_photo.jpg` and `metadata.json` (GPS coordinates, time, address).
 3. **Vision Analysis** (background thread, never blocks the upload response):
    - `analyzer.run_gemini_analysis()` picks the engine and returns `(raw_output, engine_label)`.
-   - With `GEMINI_API_KEY` set: Gemini Vision reads the photo for brand-level item detection. The
-     candidate list is tried newest first (`gemini-3.8-flash`, `gemini-3.5-flash`, `gemini-2.5-flash`,
-     `gemini-2.5-flash-lite`, `gemini-2.0-flash`) because Google retires model names — a retired name
-     answers `404 NOT_FOUND`, and if every entry is retired the service silently drops to the CV sweep.
-     `GET /api/health` reports which model actually answered.
+   - With `GEMINI_API_KEY` set: Gemini Vision reads the photo for brand-level item detection.
+     `analyzer.run_gemini_analysis()` walks a candidate list in order and `GET /api/health`
+     reports which model actually answered. The order is set by what the live API returns, not
+     by version numbers:
+     `gemini-3.8-flash` answers `503 UNAVAILABLE — high demand`, `gemini-3.5-flash` answers, and
+     retired names (`gemini-2.5-flash` and older on some keys) answer `404 NOT_FOUND`. A `404`
+     skips its second attempt — a retired name will not start answering — so a dead chain costs
+     seconds, not minutes, before the CV sweep takes over.
+   - **A model that runs out of output tokens is handled, not discarded.** Gemini stops mid-JSON
+     on busy frames, which used to parse to nothing and show `0 items` on a photo full of garbage.
+     `salvage_truncated_json()` walks the response character by character, keeps every *complete*
+     item object, recovers the summary it did finish, and derives the segregation verdict from the
+     surviving streams. The prompt also caps the answer (10 items, 2-sentence summary, compact
+     JSON) and the call sets `max_output_tokens=8192` so truncation is rare in the first place.
    - Without a key: `analyzer.generate_dynamic_image_analysis()` runs the offline colour/edge
      pipeline (local-contrast grid, blob segmentation, HSV classification).
    - If `torch` + `transformers` are installed, `backend/vision_ml.py` additionally loads
-     CLIP (`openai/clip-vit-base-patch32`) as a **verifier** — it only vetoes, see below.
+     CLIP (`openai/clip-vit-base-patch32`) as a **verifier** — it only vetoes, see below. The
+     `+ CLIP verifier gate` suffix only appears on a report when CLIP really is resident, so a
+     Render free-tier report can never claim a model that service cannot load.
    - Whatever the engine returned is then passed through `normalize_model_report()`: boxes are
      clamped to 0–1000 and degenerate ones dropped, streams validated against the eight legal
      SWM values, counts/confidences bounded, and repeated item names made unique by position
@@ -112,7 +123,7 @@ The admin console's tab-bar chip is two facts joined by one dot:
 | Chip text | Meaning | Source |
 |---|---|---|
 | `On-device CV sweep` | No Gemini key, so Pillow colour/edge maths proposed every box | `analyzer.generate_dynamic_image_analysis()` |
-| `Gemini 2.5 Flash` | A key is set and the SDK imported, so a real vision model read the photo | `analyzer.run_gemini_analysis()` |
+| `Gemini gemini-3.5-flash` | A model actually answered the last photo; the name is the one that replied | `analyzer.run_gemini_analysis()` |
 | `CV sweep — Gemini NOT answering` | A key is set but is not producing answers (SDK missing, key rejected, or every model failed) — the chip's tooltip shows the exact API error | `analyzer.GEMINI_STATUS` |
 | `CLIP verifier ON` | torch is installed and the model is resident, so boxes were veto-checked | `vision_ml.py` |
 | `CLIP verifier off` | No torch (Render free tier), so only the pixel gates rejected fakes | `vision_ml.py` |
@@ -174,9 +185,12 @@ answered the last photo:
 
 ```json
 {"clip_verifier":"unavailable","gemini_key_present":true,"gemini_sdk_installed":true,
- "gemini_model_answered":"gemini-3.8-flash","primary_engine":"Gemini gemini-3.8-flash",
- "gemini_last_attempt":"gemini-3.8-flash answered","persistent_disk":false,"python":"3.14.3"}
+ "gemini_model_answered":"gemini-3.5-flash","primary_engine":"Gemini gemini-3.5-flash",
+ "gemini_last_attempt":"gemini-3.5-flash answered","persistent_disk":false,"python":"3.14.3"}
 ```
+
+While a photo is still being read, `gemini_last_attempt` names the request in flight
+(`calling gemini-3.8-flash (attempt 1)...`) instead of reporting a finished outcome early.
 
 `gemini_key_present` alone is not enough: a key without an importable SDK — or one the API refuses —
 still means the pixel sweep is doing the work, which is what the chip calls out as

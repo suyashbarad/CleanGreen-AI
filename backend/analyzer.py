@@ -571,18 +571,28 @@ RULES:
 4. If no waste is visible: "items": [], "segregation_verdict": "CLEAN", "hazard_flag": false, and explain in "summary" that the scene appears free of litter.
 5. "segregation_verdict" is "CLEAN" when items is empty, the single stream name when only one stream is present, otherwise "UNSEGREGATED".
 6. Set "hazard_flag": true only if biomedical or chemical waste is visible.
+7. Report at most 10 items — the largest and most significant pieces of litter. Do not list
+   every fragment of the same pile.
+8. "summary" must be 2 sentences or fewer, and the JSON must be compact: no newlines,
+   no indentation, no trailing commentary. Long output gets cut off mid-report.
 """
         client = genai.Client(api_key=api_key)
         with open(image_path, "rb") as f:
             image_bytes = f.read()
 
-        # Newest first: Google retires model names, and a retired name answers 404 NOT_FOUND
-        # for every entry in the list — which silently downgraded the deploy to the CV sweep.
-        candidate_models = ["gemini-3.8-flash", "gemini-3.5-flash", "gemini-2.5-flash",
+        # Ordered by what the live API actually answers with: gemini-3.8-flash was
+        # replying 503 "high demand", retired names answer 404, and gemini-3.5-flash
+        # is the name verified on the deployed service.
+        candidate_models = ["gemini-3.5-flash", "gemini-3.8-flash", "gemini-2.5-flash",
                             "gemini-2.5-flash-lite", "gemini-2.0-flash"]
-        GEMINI_STATUS["last_attempt"] = "called, but every model returned no text"
+        clip_gate = " (+ CLIP verifier gate)" if (vision_ml is not None and vision_ml.use_ml()) else ""
+        GEMINI_STATUS["last_attempt"] = "no model called yet"
+
         for model in candidate_models:
             for attempt in range(2):
+                # Set before the call so /api/health never reports a finished outcome
+                # while a request is still in flight.
+                GEMINI_STATUS["last_attempt"] = f"calling {model} (attempt {attempt + 1})..."
                 try:
                     print(f"[AI WORKER] Calling Gemini API ({model}, attempt {attempt+1})...", flush=True)
                     response = client.models.generate_content(
@@ -591,17 +601,23 @@ RULES:
                             analysis_prompt,
                             genai.types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
                         ],
-                        config={"response_mime_type": "application/json", "temperature": 0.2}
+                        config={"response_mime_type": "application/json",
+                                "temperature": 0.2, "max_output_tokens": 8192}
                     )
                     if response and response.text:
                         print(f"[AI WORKER] Gemini response received successfully.", flush=True)
                         GEMINI_STATUS["last_attempt"] = f"{model} answered"
                         GEMINI_STATUS["model_answered"] = model
-                        return response.text.strip(), f"Gemini {model} (+ CLIP verifier gate)"
+                        return response.text.strip(), f"Gemini {model}{clip_gate}"
+                    GEMINI_STATUS["last_attempt"] = f"{model} returned no text"
                 except Exception as err:
                     GEMINI_STATUS["last_attempt"] = f"{model} failed: {type(err).__name__}: {err}"
                     print(f"[AI WORKER] Gemini API ({model}) notice: {err}", flush=True)
-                    time.sleep(2)
+                    if "404" in str(err) or "NOT_FOUND" in str(err):
+                        break  # a retired model name will not start answering on try 2
+                    time.sleep(1)
+
+        GEMINI_STATUS["last_attempt"] = "called every model, none returned text"
 
     # Dynamic Computer Vision Analysis tailored to the uploaded image file
     if not api_key:
@@ -1091,6 +1107,80 @@ def generate_dynamic_image_analysis(image_path: Path) -> str:
         raise RuntimeError(f"Automated sweep failed on this photo: {err}") from err
 
 
+def salvage_truncated_json(raw_output: str) -> Optional[Tuple[Dict[str, Any], str]]:
+    """
+    Rebuilds a report from JSON the model never finished writing.
+
+    A vision model that runs into its output token cap stops mid-object, which makes
+    the whole payload unparseable — and the photo then reports 0 items even though the
+    model named every one of them before the cut. Each *complete* item object is still
+    valid JSON, so recover those and keep the analysis.
+    """
+    label = raw_output.find('"items"')
+    if label == -1:
+        return None
+    opening = raw_output.find("[", label)
+    if opening == -1:
+        return None
+
+    items = []
+    depth = 0
+    obj_start = None
+    in_string = escaped = False
+    for index in range(opening, len(raw_output)):
+        char = raw_output[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            if depth == 0:
+                obj_start = index
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0 and obj_start is not None:
+                try:
+                    candidate = json.loads(raw_output[obj_start:index + 1])
+                except json.JSONDecodeError:
+                    candidate = None
+                if isinstance(candidate, dict) and candidate:
+                    items.append(candidate)
+                obj_start = None
+            elif depth < 0:
+                break
+
+    if not items:
+        return None
+
+    narrative = ""
+    summary_match = re.search(r'"summary"\s*:\s*"((?:[^"\\]|\\.)*)"', raw_output)
+    if summary_match:
+        try:
+            narrative = json.loads(f'"{summary_match.group(1)}"')
+        except json.JSONDecodeError:
+            narrative = summary_match.group(1)
+
+    streams = {str(i.get("stream", "")).strip() for i in items if i.get("stream")}
+    if not narrative:
+        narrative = ("The model's answer was cut off before it finished. The itemised "
+                     "list below was recovered from the part it did complete.")
+    report = {
+        "items": items,
+        "segregation_verdict": next(iter(streams)) if len(streams) == 1 else "UNSEGREGATED",
+        "hazard_flag": any(bool(i.get("hazard_flag")) for i in items),
+        "summary": narrative,
+    }
+    print(f"[AI WORKER] Recovered {len(items)} item(s) from a truncated model response.", flush=True)
+    return report, narrative
+
+
 def extract_json_and_markdown(raw_output: str) -> Tuple[Optional[Dict[str, Any]], str]:
     """Extracts the structured JSON payload and markdown narrative from raw output."""
     json_data = None
@@ -1121,6 +1211,12 @@ def extract_json_and_markdown(raw_output: str) -> Tuple[Optional[Dict[str, Any]]
             json_data = json.loads(raw_output.strip())
         except json.JSONDecodeError:
             pass
+
+    # 4. Nothing parsed — the model probably ran out of output tokens mid-report.
+    if not json_data:
+        salvaged = salvage_truncated_json(raw_output)
+        if salvaged:
+            json_data, markdown_narrative = salvaged
 
     return json_data, markdown_narrative
 
