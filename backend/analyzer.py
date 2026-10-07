@@ -63,6 +63,7 @@ GEMINI_STATUS = {
     "sdk_installed": GENAI_AVAILABLE,
     "sdk_import_error": GENAI_IMPORT_ERROR,
     "key_present": bool(os.environ.get("GEMINI_API_KEY")),
+    "model_answered": "",
     "last_attempt": "no analysis run yet",
 }
 
@@ -575,7 +576,10 @@ RULES:
         with open(image_path, "rb") as f:
             image_bytes = f.read()
 
-        candidate_models = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"]
+        # Newest first: Google retires model names, and a retired name answers 404 NOT_FOUND
+        # for every entry in the list — which silently downgraded the deploy to the CV sweep.
+        candidate_models = ["gemini-3.8-flash", "gemini-3.5-flash", "gemini-2.5-flash",
+                            "gemini-2.5-flash-lite", "gemini-2.0-flash"]
         GEMINI_STATUS["last_attempt"] = "called, but every model returned no text"
         for model in candidate_models:
             for attempt in range(2):
@@ -592,6 +596,7 @@ RULES:
                     if response and response.text:
                         print(f"[AI WORKER] Gemini response received successfully.", flush=True)
                         GEMINI_STATUS["last_attempt"] = f"{model} answered"
+                        GEMINI_STATUS["model_answered"] = model
                         return response.text.strip(), f"Gemini {model} (+ CLIP verifier gate)"
                 except Exception as err:
                     GEMINI_STATUS["last_attempt"] = f"{model} failed: {type(err).__name__}: {err}"

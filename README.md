@@ -50,8 +50,11 @@ garbade/
    - Stores `waste_photo.jpg` and `metadata.json` (GPS coordinates, time, address).
 3. **Vision Analysis** (background thread, never blocks the upload response):
    - `analyzer.run_gemini_analysis()` picks the engine and returns `(raw_output, engine_label)`.
-   - With `GEMINI_API_KEY` set: Gemini Vision (`gemini-2.5-flash`, then `-lite`, then `2.0-flash`)
-     reads the photo for brand-level item detection.
+   - With `GEMINI_API_KEY` set: Gemini Vision reads the photo for brand-level item detection. The
+     candidate list is tried newest first (`gemini-3.8-flash`, `gemini-3.5-flash`, `gemini-2.5-flash`,
+     `gemini-2.5-flash-lite`, `gemini-2.0-flash`) because Google retires model names — a retired name
+     answers `404 NOT_FOUND`, and if every entry is retired the service silently drops to the CV sweep.
+     `GET /api/health` reports which model actually answered.
    - Without a key: `analyzer.generate_dynamic_image_analysis()` runs the offline colour/edge
      pipeline (local-contrast grid, blob segmentation, HSV classification).
    - If `torch` + `transformers` are installed, `backend/vision_ml.py` additionally loads
@@ -170,9 +173,9 @@ The front end therefore treats the browser as the source of truth until the serv
 answered the last photo:
 
 ```json
-{"clip_verifier":"unavailable","gemini_key_present":true,"gemini_sdk_installed":false,
- "gemini_sdk_import_error":"ModuleNotFoundError: No module named 'google'","primary_engine":"colour/edge CV sweep",
- "gemini_last_attempt":"skipped: google-genai not importable (…)","persistent_disk":false,"python":"3.14.3"}
+{"clip_verifier":"unavailable","gemini_key_present":true,"gemini_sdk_installed":true,
+ "gemini_model_answered":"gemini-3.8-flash","primary_engine":"Gemini gemini-3.8-flash",
+ "gemini_last_attempt":"gemini-3.8-flash answered","persistent_disk":false,"python":"3.14.3"}
 ```
 
 `gemini_key_present` alone is not enough: a key without an importable SDK — or one the API refuses —

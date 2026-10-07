@@ -87,7 +87,9 @@ def vision_engine_report():
     from analyzer import GEMINI_STATUS
 
     gemini_live = GEMINI_STATUS["key_present"] and GEMINI_STATUS["sdk_installed"]
-    primary = ("Gemini 2.5 Flash" if gemini_live else "colour/edge CV sweep")
+    answered = GEMINI_STATUS.get("model_answered")
+    primary = (f"Gemini {answered}" if gemini_live and answered
+               else "Gemini Vision" if gemini_live else "colour/edge CV sweep")
     if state in ("loaded", "loading"):
         primary += " + CLIP verifier"
 
@@ -96,6 +98,7 @@ def vision_engine_report():
         "gemini_key_present": GEMINI_STATUS["key_present"],
         "gemini_sdk_installed": GEMINI_STATUS["sdk_installed"],
         "gemini_sdk_import_error": GEMINI_STATUS["sdk_import_error"],
+        "gemini_model_answered": answered,
         "gemini_last_attempt": GEMINI_STATUS["last_attempt"],
         "primary_engine": primary,
         "complaints_dir": str(COMPLAINTS_DIR),

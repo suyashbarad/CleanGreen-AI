@@ -208,7 +208,7 @@ async function refreshEngineChip() {
   const geminiWorks = engine.gemini_key_present && engine.gemini_sdk_installed &&
                       (!tried || /answered$/.test(engine.gemini_last_attempt));
   if (geminiWorks) {
-    parts.push("Gemini 2.5 Flash");
+    parts.push(engine.gemini_model_answered ? `Gemini ${engine.gemini_model_answered}` : "Gemini Vision");
   } else if (engine.gemini_key_present) {
     // Key set, but the SDK is missing or the API refused it, so the pixel sweep is answering.
     parts.push("CV sweep — Gemini NOT answering");
